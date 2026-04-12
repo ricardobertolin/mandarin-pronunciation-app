@@ -146,6 +146,14 @@ body {
   margin-top: 8px;
 }
 
+/* ── Input action row (holds convert + translate buttons) ────── */
+.input-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 /* ── Convert-pinyin button ──────────────────────────────────── */
 .btn-convert {
   display: inline-flex;
@@ -171,6 +179,23 @@ body {
 .btn-convert:active {
   background: var(--color-accent);
   color: #fff;
+}
+
+/* Translate button uses a blue tint to distinguish from pinyin convert */
+.btn-convert--translate {
+  border-color: #2980b9;
+  color: #2980b9;
+}
+
+.btn-convert--translate:hover,
+.btn-convert--translate:active {
+  background: #2980b9;
+  color: #fff;
+}
+
+.btn-convert:disabled {
+  opacity: 0.55;
+  cursor: wait;
 }
 
 /* ── Record section ────────────────────────────────────────── */
@@ -314,6 +339,25 @@ body {
   word-break: break-all;
 }
 
+/* ── Transcription annotations (pinyin + English) ─────────── */
+.result-row__annotation {
+  margin-top: 5px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+}
+
+.result-row__annotation--pinyin {
+  font-family: var(--font-ui);
+  color: #7eb8d4;   /* soft blue — visually distinct from characters */
+}
+
+.result-row__annotation--english {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
 /* ── Diff characters ───────────────────────────────────────── */
 .diff-chars {
   display: flex;
@@ -446,6 +490,14 @@ body {
   font-size: 0.72rem;
   color: var(--color-text-muted);
   letter-spacing: 0.03em;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.footer__author {
+  color: var(--color-text);
+  font-weight: 600;
 }
 
 /* ── Utility ────────────────────────────────────────────────── */

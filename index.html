@@ -15,6 +15,10 @@
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icon.svg">
+  <!-- pinyin-pro: converts Chinese characters → pinyin with tone marks.
+       Loaded from CDN; gracefully skipped if offline on first load. -->
+  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.24.2/dist/index.umd.js"
+          crossorigin="anonymous" defer></script>
 </head>
 <body>
 
@@ -45,11 +49,18 @@
           inputmode="text"
         >
         <p class="field-hint">Leave blank to just transcribe what you say</p>
-        <!-- Appears automatically when pinyin is detected in the input -->
-        <button id="convertBtn" class="btn-convert" hidden
-                aria-label="Convert pinyin to Chinese characters">
-          &#x2192;&nbsp;转换汉字
-        </button>
+        <div class="input-actions">
+          <!-- Shown when pinyin is detected -->
+          <button id="convertBtn" class="btn-convert" hidden
+                  aria-label="Convert pinyin to Chinese characters">
+            &#x2192;&nbsp;转换汉字
+          </button>
+          <!-- Shown when English is detected -->
+          <button id="translateInputBtn" class="btn-convert btn-convert--translate" hidden
+                  aria-label="Translate English to Mandarin">
+            &#x2192;&nbsp;Translate to Chinese
+          </button>
+        </div>
       </section>
 
       <!-- ── Record button ────────────────────────────────── -->
@@ -78,6 +89,12 @@
         <div class="result-row">
           <span class="result-row__label">You said:</span>
           <div class="result-row__text" id="transcribed" lang="zh-CN"></div>
+          <!-- Pinyin romanisation (populated by pinyinPro if online) -->
+          <div class="result-row__annotation result-row__annotation--pinyin"
+               id="transcribedPinyin" hidden lang="zh-Latn"></div>
+          <!-- English translation (fetched from MyMemory API) -->
+          <div class="result-row__annotation result-row__annotation--english"
+               id="transcribedEnglish" hidden lang="en"></div>
         </div>
 
         <!-- Comparison blocks (shown only when a target was provided) -->
@@ -117,7 +134,8 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>Uses Web Speech API &nbsp;·&nbsp; Works offline after first load</p>
+      <p>v2.1 &nbsp;·&nbsp; Web Speech API &nbsp;·&nbsp; Offline-ready</p>
+      <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 
   </div><!-- /app -->
