@@ -15,7 +15,7 @@
 // Bump this version string whenever you update any of the cached
 // files. The browser will install the new SW alongside the old
 // one and swap them in after the next page load.
-const CACHE_NAME = 'mandarin-practice-v3';
+const CACHE_NAME = 'mandarin-practice-v4';
 
 // Files that make up the "app shell" — everything needed to run
 // the app without any network access after the first visit.

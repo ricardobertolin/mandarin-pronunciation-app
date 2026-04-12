@@ -60,6 +60,11 @@
                   aria-label="Translate English to Mandarin">
             &#x2192;&nbsp;Translate to Chinese
           </button>
+          <!-- Shown when the field contains Chinese characters -->
+          <button id="pronounceTargetBtn" class="btn-pronounce" hidden
+                  aria-label="Pronounce target phrase">
+            &#x1F50A;&nbsp;Pronounce
+          </button>
         </div>
       </section>
 
@@ -90,6 +95,11 @@
           <span class="result-row__label">You said:</span>
           <div class="result-row__text" id="transcribed" lang="zh-CN"></div>
           <!-- Pinyin romanisation (populated by pinyinPro if online) -->
+          <!-- TTS button: pronounce what was said -->
+          <button id="pronounceTranscribedBtn" class="btn-pronounce" hidden
+                  aria-label="Pronounce transcribed text">
+            &#x1F50A;&nbsp;Pronounce
+          </button>
           <div class="result-row__annotation result-row__annotation--pinyin"
                id="transcribedPinyin" hidden lang="zh-Latn"></div>
           <!-- English translation (fetched from MyMemory API) -->
@@ -134,7 +144,7 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v2.1 &nbsp;·&nbsp; Web Speech API &nbsp;·&nbsp; Offline-ready</p>
+      <p>v2.2 &nbsp;·&nbsp; Web Speech API &nbsp;·&nbsp; Offline-ready</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 

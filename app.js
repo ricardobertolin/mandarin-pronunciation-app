@@ -1,5 +1,5 @@
 /* ============================================================
-   Mandarin Pronunciation Practice — Application Logic  v2.1
+   Mandarin Pronunciation Practice — Application Logic  v2.2
    ============================================================
    Features:
      • Speech recognition (zh-CN) with char-by-char diff + score
@@ -35,8 +35,10 @@ const transcribedEnglish = document.getElementById('transcribedEnglish');
 const comparisonBlock    = document.getElementById('comparisonBlock');
 const targetDisplay      = document.getElementById('targetDisplay');
 const diffDisplay        = document.getElementById('diffDisplay');
-const scoreValue         = document.getElementById('scoreValue');
-const tryAgainBtn        = document.getElementById('tryAgainBtn');
+const scoreValue              = document.getElementById('scoreValue');
+const tryAgainBtn             = document.getElementById('tryAgainBtn');
+const pronounceTargetBtn      = document.getElementById('pronounceTargetBtn');
+const pronounceTranscribedBtn = document.getElementById('pronounceTranscribedBtn');
 
 /* ── Speech Recognition ────────────────────────────────────── */
 const SpeechRecognition =
@@ -129,6 +131,7 @@ function handleTranscript(transcript) {
   }
 
   transcribedEl.textContent = transcript;
+  pronounceTranscribedBtn.hidden = false;   // show TTS button for result
 
   // Show pinyin + English translation below the Chinese characters
   showTranscriptAnnotations(transcript);
@@ -267,19 +270,182 @@ function renderDiff(charResults) {
 function showStatus(message) { statusEl.textContent = message; }
 
 function resetUI() {
-  resultsSection.hidden        = true;
-  comparisonBlock.hidden       = true;
-  transcribedEl.textContent    = '';
-  transcribedPinyin.hidden     = true;
-  transcribedEnglish.hidden    = true;
-  targetDisplay.textContent    = '';
-  diffDisplay.innerHTML        = '';
-  scoreValue.textContent       = '0%';
+  // Stop any ongoing audio (Edge TTS or Web Speech fallback)
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    currentAudio = null;
+  }
+  window.speechSynthesis?.cancel();
+
+  resultsSection.hidden              = true;
+  comparisonBlock.hidden             = true;
+  transcribedEl.textContent          = '';
+  transcribedPinyin.hidden           = true;
+  transcribedEnglish.hidden          = true;
+  pronounceTranscribedBtn.hidden     = true;
+  pronounceTranscribedBtn.classList.remove('btn-pronounce--speaking');
+  targetDisplay.textContent          = '';
+  diffDisplay.innerHTML              = '';
+  scoreValue.textContent             = '0%';
   scoreValue.classList.remove('score__value--good');
   showStatus('');
   targetInput.focus();
 }
 
+
+/* ============================================================
+   Text-to-Speech  — Edge TTS WebSocket (primary)
+                    Web Speech API (fallback)
+   ============================================================
+   Voice:  zh-CN-YunyangNeural  (natural Mandarin male)
+   Rate:   -25%
+   Uses the same Edge TTS WebSocket protocol as the Python
+   edge-tts package.  Falls back to Web Speech on WS failure.
+   ============================================================ */
+
+const EDGE_TTS_TOKEN = '6A5AA1D4EAFF4E9FB37E23D68491D6F4';
+const EDGE_TTS_VOICE = 'zh-CN-YunyangNeural';
+const EDGE_TTS_RATE  = '-25%';
+const EDGE_TTS_WS    = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
+
+let currentAudio    = null;
+let currentSpeakBtn = null;
+
+function makeUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = Math.random() * 16 | 0;
+    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+  });
+}
+
+function edgeTTSRequest(text) {
+  return new Promise((resolve, reject) => {
+    const connId = makeUUID().replace(/-/g, '');
+    const url    = `${EDGE_TTS_WS}?TrustedClientToken=${EDGE_TTS_TOKEN}&ConnectionId=${connId}`;
+    const ws     = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+
+    const audioChunks = [];
+    const ts = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+    ws.onopen = () => {
+      // 1. Speech config
+      ws.send(
+        `X-Timestamp:${ts}\r\n` +
+        `Content-Type:application/json; charset=utf-8\r\n` +
+        `Path:speech.config\r\n\r\n` +
+        `{"context":{"synthesis":{"audio":{"metadataoptions":` +
+        `{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},` +
+        `"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`
+      );
+
+      // 2. SSML synthesis request
+      const reqId = makeUUID().replace(/-/g, '');
+      const ssml  =
+        `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'>` +
+        `<voice name='${EDGE_TTS_VOICE}'>` +
+        `<prosody rate='${EDGE_TTS_RATE}'>${text}</prosody>` +
+        `</voice></speak>`;
+
+      ws.send(
+        `X-RequestId:${reqId}\r\n` +
+        `Content-Type:application/ssml+xml\r\n` +
+        `X-Timestamp:${ts}Z\r\n` +
+        `Path:ssml\r\n\r\n` + ssml
+      );
+    };
+
+    ws.onmessage = ({ data }) => {
+      if (data instanceof ArrayBuffer) {
+        // Binary frame: [2-byte big-endian header length][header][MP3 audio]
+        const headerLen = new DataView(data).getUint16(0);
+        const audio     = data.slice(2 + headerLen);
+        if (audio.byteLength > 0) audioChunks.push(audio);
+      } else if (typeof data === 'string' && data.includes('Path:turn.end')) {
+        ws.close();
+        resolve(new Blob(audioChunks, { type: 'audio/mpeg' }));
+      }
+    };
+
+    ws.onerror = (e) => { console.warn('[EdgeTTS] WS error', e); reject(e); };
+    ws.onclose = (e) => {
+      if (!e.wasClean && audioChunks.length === 0) {
+        reject(new Error('WebSocket closed unexpectedly'));
+      }
+    };
+  });
+}
+
+async function speak(text, btn) {
+  if (!text.trim()) return;
+
+  // Toggle off if already speaking via this button
+  if (currentSpeakBtn === btn && currentAudio && !currentAudio.paused) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    btn?.classList.remove('btn-pronounce--speaking');
+    currentSpeakBtn = null;
+    return;
+  }
+
+  // Stop any other audio that's playing
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    currentSpeakBtn?.classList.remove('btn-pronounce--speaking');
+    currentAudio = null;
+  }
+  window.speechSynthesis?.cancel();
+
+  btn?.classList.add('btn-pronounce--speaking');
+  currentSpeakBtn = btn;
+
+  try {
+    const blob = await edgeTTSRequest(text);
+    const url  = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    currentAudio = audio;
+
+    audio.onended = audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      btn?.classList.remove('btn-pronounce--speaking');
+      if (currentSpeakBtn === btn) currentSpeakBtn = null;
+      currentAudio = null;
+    };
+
+    await audio.play();
+  } catch (err) {
+    console.warn('[EdgeTTS] Failed, falling back to Web Speech:', err);
+    btn?.classList.remove('btn-pronounce--speaking');
+    if (currentSpeakBtn === btn) currentSpeakBtn = null;
+    speakWebSpeech(text, btn);
+  }
+}
+
+function speakWebSpeech(text, btn) {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang  = 'zh-CN';
+  utterance.rate  = 0.75;
+  btn?.classList.add('btn-pronounce--speaking');
+  currentSpeakBtn = btn;
+  utterance.onend = utterance.onerror = () => {
+    btn?.classList.remove('btn-pronounce--speaking');
+    if (currentSpeakBtn === btn) currentSpeakBtn = null;
+  };
+  window.speechSynthesis.speak(utterance);
+}
+
+// Wire up both pronounce buttons
+pronounceTargetBtn.addEventListener('click', () => {
+  speak(targetInput.value.trim(), pronounceTargetBtn);
+});
+
+pronounceTranscribedBtn.addEventListener('click', () => {
+  speak(transcribedEl.textContent.trim(), pronounceTranscribedBtn);
+});
 
 /* ============================================================
    Pinyin → Chinese Character Conversion
@@ -559,24 +725,55 @@ const PY = {
   'zong':  '总', 'zou':   '走', 'zu':    '足', 'zui':   '最', 'zuo':   '做',
 };
 
+/* ── English word list ─────────────────────────────────────────
+   Common English words that could otherwise pass the Mandarin
+   syllable-coverage test (e.g. "rice" → ri+ce = 100 % coverage).
+   Any input token matching this set is treated as English.
+   ──────────────────────────────────────────────────────────── */
+const EN_WORDS = new Set([
+  // Pronouns / articles / prepositions / conjunctions
+  'i','a','an','the','and','or','but','not','so','if','as','by','of',
+  'in','on','at','to','up','is','it','be','do','go','we','he','she',
+  'me','my','us','no','for','out','was','are','has','had','with',
+  'from','can','will','have','this','that','they','them','their',
+  // Common verbs
+  'eat','drink','like','love','know','see','say','ask','use','try',
+  'run','walk','talk','work','live','play','cook','read','write',
+  'sing','dance','help','tell','give','take','make','come','get',
+  'find','look','feel','want','need','wake','sleep','buy','sell',
+  'think','speak','learn','teach','study','listen','watch','open',
+  // Common nouns / adjectives likely typed as practice targets
+  'rice','fish','meat','milk','tea','food','water','bread','cake',
+  'cat','dog','bird','tree','book','home','city','road','time','day',
+  'night','week','year','name','word','hand','head','face','life',
+  'good','bad','big','small','hot','cold','new','old','fast','slow',
+  'hard','easy','long','short','happy','sad','nice','right','wrong',
+  // Greetings / common phrases
+  'hello','bye','yes','please','sorry','thanks','thank','excuse',
+  'today','tomorrow','yesterday','morning','evening',
+]);
+
 /* ── Detect pinyin ─────────────────────────────────────────────
    Returns true when the string looks like romanised Mandarin.
-   Uses syllable coverage rather than a simple character-class
-   test so that English words like "hello" don't match.
+   First rejects known English words, then measures syllable
+   coverage — genuine pinyin scores ≥ 55 %.
    ──────────────────────────────────────────────────────────── */
 function looksLikePinyin(str) {
   if (!str.trim()) return false;
-  // Any CJK character means it's already Chinese
   if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(str)) return false;
-  // Must be only latin letters, tone marks, digits 1-5, spaces, apostrophes
   const norm = normalizePinyin(str).trim();
   if (!/^[a-z1-5\s''·]+$/.test(norm)) return false;
 
-  // Measure what fraction of characters can be consumed by valid syllables.
-  // A genuine pinyin string should score ≥ 55 %; pure English words score 0–20 %.
+  // Reject immediately if any space-separated token is a known English word
   const tokens = norm.split(/\s+/);
-  let total = 0, matched = 0;
+  if (tokens.some(t => EN_WORDS.has(t))) return false;
 
+  // Also reject English consonant clusters impossible in Mandarin
+  if (/th|wh|gh|ph|ck|qu/.test(norm)) return false;
+  if (/([bcdfghjklmnpqrstvwxyz])\1/.test(norm)) return false; // double consonant
+
+  // Syllable coverage check
+  let total = 0, matched = 0;
   for (const token of tokens) {
     total += token.length;
     let i = 0;
@@ -584,26 +781,34 @@ function looksLikePinyin(str) {
       let hit = false;
       for (let len = Math.min(6, token.length - i); len >= 1; len--) {
         if (PY[token.slice(i, i + len)]) {
-          matched += len;
-          i += len;
-          hit = true;
-          break;
+          matched += len; i += len; hit = true; break;
         }
       }
       if (!hit) i++;
     }
   }
-
   return total > 0 && matched / total >= 0.55;
 }
 
 /* ── Detect English ───────────────────────────────────────────
-   True when the string has Latin words but is NOT pinyin.
+   True when the string contains Latin words that are NOT pinyin.
    ──────────────────────────────────────────────────────────── */
 function looksLikeEnglish(str) {
   if (!str.trim()) return false;
-  if (/[\u4e00-\u9fff]/.test(str)) return false; // already Chinese
-  if (looksLikePinyin(str)) return false;          // let pinyin converter handle it
+  if (/[\u4e00-\u9fff]/.test(str)) return false;
+  if (looksLikePinyin(str)) return false;
+
+  const lower  = str.toLowerCase();
+  const tokens = lower.split(/\s+/).filter(Boolean);
+
+  // Any known English word → English
+  if (tokens.some(t => EN_WORDS.has(t))) return true;
+  // English-only consonant patterns
+  if (/th|wh|gh|ph|ck|qu/.test(lower)) return true;
+  if (/([bcdfghjklmnpqrstvwxyz])\1/.test(lower)) return true; // double consonant
+  // Longer words that aren't valid pinyin sequences
+  if (tokens.some(t => t.length >= 5 && !looksLikePinyin(t))) return true;
+
   return /[a-zA-Z]{2,}/.test(str);
 }
 
@@ -637,63 +842,53 @@ function convertPinyin(raw) {
 
 
 /* ============================================================
-   Input field smart detection + auto-conversion / translation
+   Input field smart detection + conversion / translation
    ============================================================
-   Pinyin  → converts instantly (local lookup, synchronous)
-   English → translates via MyMemory API (async):
-               • paste   → translates immediately
-               • typing  → translates 900 ms after last keystroke
+   Both pinyin AND English now behave the same way:
+     • Typing  → show a button (convert / translate)
+     • Pasting → act immediately (no button click needed)
+   This avoids mid-word API calls and false detections.
    ============================================================ */
 
-let translateDebounce = null;   // timer ID for debounced auto-translate
-
-/* ── Core auto-translate helper ────────────────────────────────
-   Calls the API for `val`, then writes the result back ONLY if
-   the input hasn't changed while the request was in-flight.
-   On failure, surfaces the manual button as a retry.
+/* ── Shared translate-and-replace helper ───────────────────────
+   Fires the MyMemory API for `val`.  Writes the result back only
+   if the field hasn't been edited while the request was in-flight.
+   On failure it re-surfaces the button as a manual retry.
    ──────────────────────────────────────────────────────────── */
 async function autoTranslateInput(val) {
   const result = await translateText(val.trim(), 'en', 'zh');
-
-  // User changed the field while waiting — don't clobber their edit
-  if (targetInput.value !== val) return;
+  if (targetInput.value !== val) return;   // user edited while we waited
 
   if (result) {
     targetInput.value = result;
-    translateInputBtn.hidden = true;
-    convertBtn.hidden        = true;
+    translateInputBtn.hidden   = true;
+    convertBtn.hidden          = true;
+    // Show pronounce button now that the field has Chinese text
+    pronounceTargetBtn.hidden  = false;
   } else {
-    // Translation failed (offline?) → surface button as manual retry
     translateInputBtn.textContent = '→ Translate to Chinese';
     translateInputBtn.disabled    = false;
     translateInputBtn.hidden      = false;
   }
 }
 
-/* ── Input event: pinyin convert button + English debounce ─── */
+/* ── Input event: show correct button, update pronounce btn ─── */
 targetInput.addEventListener('input', () => {
-  clearTimeout(translateDebounce);
+  const val      = targetInput.value;
+  const isPy     = looksLikePinyin(val);
+  const isEn     = !isPy && looksLikeEnglish(val);
+  const isChinese = /[\u4e00-\u9fff]/.test(val);
 
-  const val  = targetInput.value;
-  const isPy = looksLikePinyin(val);
-  const isEn = !isPy && looksLikeEnglish(val);
-
-  convertBtn.hidden        = !isPy;
-  translateInputBtn.hidden = true;   // hidden while debounce is pending
-
-  if (isEn && val.trim().length >= 2) {
-    // Wait for the user to pause typing before hitting the API
-    translateDebounce = setTimeout(() => autoTranslateInput(val), 900);
-  }
+  convertBtn.hidden          = !isPy;
+  translateInputBtn.hidden   = !isEn;
+  pronounceTargetBtn.hidden  = !isChinese || !val.trim();
 });
 
 /* ── Paste event ───────────────────────────────────────────────
    Pinyin  → convert synchronously, replace immediately.
-   English → let the paste land in the field, then translate
-             right away (no debounce delay for paste).
+   English → insert pasted text, then call translate API at once.
    ──────────────────────────────────────────────────────────── */
 targetInput.addEventListener('paste', (e) => {
-  clearTimeout(translateDebounce);
   const pasted = e.clipboardData?.getData('text') ?? '';
 
   if (looksLikePinyin(pasted)) {
@@ -705,22 +900,19 @@ targetInput.addEventListener('paste', (e) => {
     targetInput.value =
       targetInput.value.slice(0, start) + converted + targetInput.value.slice(end);
     targetInput.selectionStart = targetInput.selectionEnd = start + converted.length;
-    convertBtn.hidden        = true;
-    translateInputBtn.hidden = true;
+    convertBtn.hidden         = true;
+    translateInputBtn.hidden  = true;
+    pronounceTargetBtn.hidden = !/[\u4e00-\u9fff]/.test(targetInput.value);
 
   } else if (looksLikeEnglish(pasted)) {
-    // ── Immediate English translation ──────────────────────
-    // Let the browser insert the pasted text normally first,
-    // then translate what's now in the field.
+    // ── Immediate English → Chinese translation ────────────
     e.preventDefault();
     const start = targetInput.selectionStart ?? 0;
     const end   = targetInput.selectionEnd   ?? 0;
-    const full  =
-      targetInput.value.slice(0, start) + pasted + targetInput.value.slice(end);
+    const full  = targetInput.value.slice(0, start) + pasted + targetInput.value.slice(end);
     targetInput.value = full;
     targetInput.selectionStart = targetInput.selectionEnd = start + pasted.length;
-
-    translateInputBtn.hidden = true;   // hide while in-flight
+    translateInputBtn.hidden = true;
     autoTranslateInput(full);
   }
 });
@@ -729,15 +921,15 @@ targetInput.addEventListener('paste', (e) => {
 convertBtn.addEventListener('click', () => {
   if (!looksLikePinyin(targetInput.value)) return;
   targetInput.value = convertPinyin(targetInput.value);
-  convertBtn.hidden = true;
+  convertBtn.hidden         = true;
+  pronounceTargetBtn.hidden = false;
   targetInput.focus();
 });
 
-/* ── Translate button: manual retry when auto-translate fails ─ */
+/* ── Translate button: manual trigger / retry ──────────────── */
 translateInputBtn.addEventListener('click', async () => {
   const val = targetInput.value.trim();
   if (!val) return;
-  clearTimeout(translateDebounce);
   translateInputBtn.disabled    = true;
   translateInputBtn.textContent = 'Translating…';
   await autoTranslateInput(val);

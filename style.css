@@ -198,6 +198,39 @@ body {
   cursor: wait;
 }
 
+/* ── Pronounce (TTS) button ────────────────────────────────── */
+.btn-pronounce {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 5px 14px;
+  border: 1.5px solid #2980b9;
+  border-radius: 99px;
+  background: transparent;
+  color: #2980b9;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition), color var(--transition);
+  animation: fade-in 0.2s ease;
+}
+
+.btn-pronounce:hover,
+.btn-pronounce:active {
+  background: #2980b9;
+  color: #fff;
+}
+
+/* Active/speaking state */
+.btn-pronounce--speaking {
+  background: #2980b9;
+  color: #fff;
+}
+
 /* ── Record section ────────────────────────────────────────── */
 .record-section {
   display: flex;
