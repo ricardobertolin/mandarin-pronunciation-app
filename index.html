@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#c0392b">
+  <meta name="description" content="Practice Mandarin pronunciation with instant speech recognition feedback">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="普通话练习">
+
+  <title>普通话练习 · Mandarin Practice</title>
+
+  <link rel="stylesheet" href="style.css">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- ── Header ─────────────────────────────────────────── -->
+    <header class="header">
+      <h1 class="header__zh">普通话练习</h1>
+      <p class="header__en">Mandarin Pronunciation Practice</p>
+    </header>
+
+    <main class="main">
+
+      <!-- ── Target phrase input ──────────────────────────── -->
+      <section class="card" aria-labelledby="target-label">
+        <label class="label" id="target-label" for="target">
+          Target phrase <span class="label__hint">(optional)</span>
+        </label>
+        <input
+          type="text"
+          id="target"
+          class="input"
+          placeholder="输入目标短语… e.g. 你好世界"
+          autocomplete="off"
+          autocorrect="off"
+          autocapitalize="none"
+          spellcheck="false"
+          inputmode="text"
+        >
+        <p class="field-hint">Leave blank to just transcribe what you say</p>
+      </section>
+
+      <!-- ── Record button ────────────────────────────────── -->
+      <section class="record-section">
+        <button
+          id="recordBtn"
+          class="record-btn"
+          aria-label="Start recording"
+          aria-pressed="false"
+        >
+          <!-- Pulsing ring shown while recording (toggled via CSS class) -->
+          <span class="record-btn__ring" aria-hidden="true"></span>
+          <span class="record-btn__icon" aria-hidden="true">🎤</span>
+          <span class="record-btn__label" id="recordLabel">Tap to Speak</span>
+        </button>
+
+        <!-- Live status messages read by screen readers -->
+        <p class="status" id="status" aria-live="polite" aria-atomic="true"></p>
+      </section>
+
+      <!-- ── Results ──────────────────────────────────────── -->
+      <section class="card results" id="results" hidden aria-labelledby="results-heading">
+        <h2 class="results__heading" id="results-heading">Results</h2>
+
+        <!-- What the user said (always shown) -->
+        <div class="result-row">
+          <span class="result-row__label">You said:</span>
+          <div class="result-row__text" id="transcribed" lang="zh-CN"></div>
+        </div>
+
+        <!-- Comparison blocks (shown only when a target was provided) -->
+        <div id="comparisonBlock" hidden>
+
+          <div class="result-row">
+            <span class="result-row__label">Target:</span>
+            <div class="result-row__text" id="targetDisplay" lang="zh-CN"></div>
+          </div>
+
+          <!-- Character-by-character diff -->
+          <div class="result-row">
+            <span class="result-row__label">Diff:</span>
+            <div class="result-row__text diff-chars" id="diffDisplay" lang="zh-CN"
+                 aria-label="Character by character comparison"></div>
+          </div>
+
+          <!-- Legend explaining the colour coding -->
+          <div class="legend" aria-label="Colour legend">
+            <span class="legend__item legend__item--correct">Correct</span>
+            <span class="legend__item legend__item--wrong">Wrong</span>
+            <span class="legend__item legend__item--missing">Missing</span>
+            <span class="legend__item legend__item--extra">Extra</span>
+          </div>
+
+          <!-- Score -->
+          <div class="score" id="scoreDisplay">
+            <span class="score__value" id="scoreValue">0%</span>
+            <span class="score__label">of target characters matched</span>
+          </div>
+
+        </div><!-- /comparisonBlock -->
+
+        <button class="btn-secondary" id="tryAgainBtn">Try Again</button>
+      </section>
+
+    </main><!-- /main -->
+
+    <footer class="footer">
+      <p>Uses Web Speech API &nbsp;·&nbsp; Works offline after first load</p>
+    </footer>
+
+  </div><!-- /app -->
+
+  <script src="app.js"></script>
+</body>
+</html>

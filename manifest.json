@@ -1,0 +1,19 @@
+{
+  "name": "Mandarin Pronunciation Practice",
+  "short_name": "普通话练习",
+  "description": "Practice Mandarin pronunciation with real-time speech recognition feedback",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#c0392b",
+  "orientation": "portrait-primary",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

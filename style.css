@@ -1,0 +1,419 @@
+/* ============================================================
+   Mandarin Pronunciation Practice — Mobile-first stylesheet
+   ============================================================ */
+
+/* ── CSS Custom Properties ─────────────────────────────────── */
+:root {
+  --color-bg:          #1a1a2e;   /* deep navy background         */
+  --color-surface:     #16213e;   /* card surface                 */
+  --color-surface-alt: #0f3460;   /* elevated card / hover        */
+  --color-accent:      #c0392b;   /* Chinese red — primary action */
+  --color-accent-dark: #962d22;   /* pressed state                */
+  --color-text:        #e8e8f0;   /* primary text                 */
+  --color-text-muted:  #8888aa;   /* secondary / hint text        */
+  --color-border:      #2a2a4a;   /* card borders                 */
+
+  /* Diff colours */
+  --color-correct:     #27ae60;   /* green  – character matched   */
+  --color-wrong:       #e74c3c;   /* red    – wrong character     */
+  --color-missing:     #636380;   /* grey   – not said            */
+  --color-extra:       #e67e22;   /* orange – said but unexpected */
+
+  --radius-card:  16px;
+  --radius-btn:   50%;
+  --radius-input: 12px;
+
+  --font-zh: 'Noto Serif SC', 'SimSun', 'STSong', serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  --transition: 0.2s ease;
+}
+
+/* ── Reset / Base ──────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  background: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100dvh;            /* dynamic viewport height on mobile */
+  line-height: 1.5;
+}
+
+/* ── App shell ─────────────────────────────────────────────── */
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  max-width: 540px;
+  margin: 0 auto;
+  padding: 0 16px 32px;
+}
+
+/* ── Header ────────────────────────────────────────────────── */
+.header {
+  text-align: center;
+  padding: 32px 0 20px;
+}
+
+.header__zh {
+  font-family: var(--font-zh);
+  font-size: clamp(2rem, 8vw, 3rem);
+  font-weight: 700;
+  color: var(--color-accent);
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+}
+
+.header__en {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+/* ── Main layout ───────────────────────────────────────────── */
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Cards ─────────────────────────────────────────────────── */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  padding: 20px;
+}
+
+/* ── Form label ────────────────────────────────────────────── */
+.label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 10px;
+}
+
+.label__hint {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Text input ────────────────────────────────────────────── */
+.input {
+  width: 100%;
+  background: var(--color-bg);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-input);
+  color: var(--color-text);
+  font-family: var(--font-zh);
+  font-size: 1.4rem;
+  padding: 12px 14px;
+  outline: none;
+  transition: border-color var(--transition);
+  /* Prevent iOS zoom on focus (font-size >= 16px is sufficient) */
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+}
+
+.input:focus {
+  border-color: var(--color-accent);
+}
+
+.field-hint {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-top: 8px;
+}
+
+/* ── Record section ────────────────────────────────────────── */
+.record-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 0;
+}
+
+/* ── Record button ─────────────────────────────────────────── */
+.record-btn {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+
+  width: 140px;
+  height: 140px;
+  border-radius: var(--radius-btn);
+  border: none;
+  cursor: pointer;
+
+  background: var(--color-accent);
+  color: #fff;
+  box-shadow: 0 4px 24px rgba(192, 57, 43, 0.45);
+  transition: background var(--transition), transform var(--transition), box-shadow var(--transition);
+
+  /* Ensure large tap target */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.record-btn:hover {
+  background: var(--color-accent-dark);
+}
+
+.record-btn:active {
+  transform: scale(0.94);
+  box-shadow: 0 2px 12px rgba(192, 57, 43, 0.35);
+}
+
+/* Disabled while processing */
+.record-btn:disabled {
+  background: var(--color-surface-alt);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.record-btn__icon {
+  font-size: 2.4rem;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.record-btn__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* ── Pulsing ring (visible only while recording) ───────────── */
+.record-btn__ring {
+  display: none;                 /* hidden by default             */
+  position: absolute;
+  inset: -10px;
+  border-radius: 50%;
+  border: 3px solid var(--color-accent);
+  animation: pulse-ring 1.2s ease-out infinite;
+  pointer-events: none;
+}
+
+/* Recording state applied via JS */
+.record-btn--recording {
+  background: #8b0000;
+  box-shadow: 0 4px 32px rgba(139, 0, 0, 0.65);
+}
+
+.record-btn--recording .record-btn__ring {
+  display: block;
+}
+
+@keyframes pulse-ring {
+  0%   { transform: scale(1);    opacity: 0.8; }
+  100% { transform: scale(1.45); opacity: 0;   }
+}
+
+/* ── Status message ────────────────────────────────────────── */
+.status {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  min-height: 1.2em;
+  text-align: center;
+}
+
+/* ── Results card ──────────────────────────────────────────── */
+.results {
+  animation: fade-in 0.3s ease;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0);   }
+}
+
+.results__heading {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 16px;
+}
+
+/* ── Result rows ───────────────────────────────────────────── */
+.result-row {
+  margin-bottom: 16px;
+}
+
+.result-row__label {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.result-row__text {
+  font-family: var(--font-zh);
+  font-size: 1.5rem;
+  line-height: 1.6;
+  color: var(--color-text);
+  word-break: break-all;
+}
+
+/* ── Diff characters ───────────────────────────────────────── */
+.diff-chars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+/* Each character in the diff is wrapped in a <span> by JS */
+.diff-chars .ch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.2rem;
+  height: 2.4rem;
+  border-radius: 6px;
+  font-family: var(--font-zh);
+  font-size: 1.4rem;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+/* Correct match — green */
+.ch--correct {
+  color: #fff;
+  background: var(--color-correct);
+}
+
+/* Wrong character at this position — red */
+.ch--wrong {
+  color: #fff;
+  background: var(--color-wrong);
+}
+
+/* Target character that was never said — grey, dashed border */
+.ch--missing {
+  color: var(--color-missing);
+  background: transparent;
+  border: 2px dashed var(--color-missing);
+  text-decoration: line-through;
+  text-decoration-color: var(--color-missing);
+}
+
+/* Character said beyond the length of the target — orange */
+.ch--extra {
+  color: #fff;
+  background: var(--color-extra);
+}
+
+/* ── Legend ────────────────────────────────────────────────── */
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 20px;
+}
+
+.legend__item {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 99px;
+}
+
+.legend__item--correct { background: var(--color-correct); color: #fff; }
+.legend__item--wrong   { background: var(--color-wrong);   color: #fff; }
+.legend__item--missing { border: 2px dashed var(--color-missing); color: var(--color-missing); }
+.legend__item--extra   { background: var(--color-extra);   color: #fff; }
+
+/* ── Score ─────────────────────────────────────────────────── */
+.score {
+  text-align: center;
+  padding: 20px 0 24px;
+  border-top: 1px solid var(--color-border);
+  margin-bottom: 20px;
+}
+
+.score__value {
+  display: block;
+  font-size: clamp(2.5rem, 12vw, 4rem);
+  font-weight: 700;
+  color: var(--color-accent);
+  line-height: 1;
+}
+
+.score__label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+}
+
+/* ── Secondary button (Try Again) ──────────────────────────── */
+.btn-secondary {
+  display: block;
+  width: 100%;
+  padding: 14px;
+  border: 1.5px solid var(--color-accent);
+  border-radius: var(--radius-input);
+  background: transparent;
+  color: var(--color-accent);
+  font-family: var(--font-ui);
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition), color var(--transition);
+}
+
+.btn-secondary:hover,
+.btn-secondary:active {
+  background: var(--color-accent);
+  color: #fff;
+}
+
+/* ── Footer ────────────────────────────────────────────────── */
+.footer {
+  text-align: center;
+  padding: 24px 0 8px;
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+}
+
+/* ── Utility ────────────────────────────────────────────────── */
+[hidden] { display: none !important; }
