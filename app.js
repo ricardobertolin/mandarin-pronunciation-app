@@ -17,6 +17,10 @@ if ('serviceWorker' in navigator) {
     regs.forEach(reg => reg.unregister());
   });
 }
+// Clear leftover caches from old service workers
+if ('caches' in window) {
+  caches.keys().then(names => names.forEach(n => caches.delete(n)));
+}
 
 /* ── DOM References ────────────────────────────────────────── */
 const targetInput        = document.getElementById('target');
