@@ -17,7 +17,7 @@
   <link rel="apple-touch-icon" href="icon.svg">
   <!-- pinyin-pro: converts Chinese characters → pinyin with tone marks.
        Loaded from CDN; gracefully skipped if offline on first load. -->
-  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.24.2/dist/index.umd.js"
+  <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.24.2/dist/index.min.js"
           crossorigin="anonymous" defer></script>
 </head>
 <body>
@@ -49,6 +49,12 @@
           inputmode="text"
         >
         <p class="field-hint">Leave blank to just transcribe what you say</p>
+        <div class="detected-lang-row" id="detectedLangRow" hidden>
+          <span class="detected-lang-label">Detected:</span>
+          <button class="lang-chip" data-lang="pinyin">Pinyin</button>
+          <button class="lang-chip" data-lang="en">English</button>
+          <button class="lang-chip" data-lang="pt-BR">Português</button>
+        </div>
         <div class="input-actions">
           <!-- Shown when pinyin is detected -->
           <button id="convertBtn" class="btn-convert" hidden
@@ -100,11 +106,15 @@
                   aria-label="Pronounce transcribed text">
             &#x1F50A;&nbsp;Pronounce
           </button>
-          <div class="result-row__annotation result-row__annotation--pinyin"
-               id="transcribedPinyin" hidden lang="zh-Latn"></div>
           <!-- English translation (fetched from MyMemory API) -->
           <div class="result-row__annotation result-row__annotation--english"
                id="transcribedEnglish" hidden lang="en"></div>
+          <!-- Portuguese (Brazil) translation (fetched from MyMemory API) -->
+          <div class="result-row__annotation result-row__annotation--portuguese"
+               id="transcribedPortuguese" hidden lang="pt-BR"></div>
+          <!-- Pinyin romanisation (populated by pinyinPro if online) -->
+          <div class="result-row__annotation result-row__annotation--pinyin"
+               id="transcribedPinyin" hidden lang="zh-Latn"></div>
         </div>
 
         <!-- Comparison blocks (shown only when a target was provided) -->
@@ -113,6 +123,8 @@
           <div class="result-row">
             <span class="result-row__label">Target:</span>
             <div class="result-row__text" id="targetDisplay" lang="zh-CN"></div>
+            <div class="result-row__annotation result-row__annotation--pinyin"
+                 id="targetPinyin" hidden lang="zh-Latn"></div>
           </div>
 
           <!-- Character-by-character diff -->
@@ -144,7 +156,7 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v2.2 &nbsp;·&nbsp; Web Speech API &nbsp;·&nbsp; Offline-ready</p>
+      <p>v2.3.6 &nbsp;·&nbsp; Web Speech API</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 

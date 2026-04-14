@@ -1,5 +1,5 @@
 /* ============================================================
-   Mandarin Pronunciation Practice — Application Logic  v2.2
+   Mandarin Pronunciation Practice — Application Logic  v2.3.6
    ============================================================
    Features:
      • Speech recognition (zh-CN) with char-by-char diff + score
@@ -11,13 +11,10 @@
 
 'use strict';
 
-/* ── Service Worker ────────────────────────────────────────── */
+/* ── Service Worker — unregister any previously installed SW ── */
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker
-      .register('./sw.js')
-      .then(reg => console.log('[SW] Registered, scope:', reg.scope))
-      .catch(err => console.warn('[SW] Registration failed:', err));
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(reg => reg.unregister());
   });
 }
 
@@ -25,15 +22,19 @@ if ('serviceWorker' in navigator) {
 const targetInput        = document.getElementById('target');
 const convertBtn         = document.getElementById('convertBtn');
 const translateInputBtn  = document.getElementById('translateInputBtn');
+const detectedLangRow    = document.getElementById('detectedLangRow');
+const langChips          = detectedLangRow.querySelectorAll('.lang-chip');
 const recordBtn          = document.getElementById('recordBtn');
 const recordLabel        = document.getElementById('recordLabel');
 const statusEl           = document.getElementById('status');
 const resultsSection     = document.getElementById('results');
-const transcribedEl      = document.getElementById('transcribed');
-const transcribedPinyin  = document.getElementById('transcribedPinyin');
-const transcribedEnglish = document.getElementById('transcribedEnglish');
+const transcribedEl         = document.getElementById('transcribed');
+const transcribedPinyin     = document.getElementById('transcribedPinyin');
+const transcribedEnglish    = document.getElementById('transcribedEnglish');
+const transcribedPortuguese = document.getElementById('transcribedPortuguese');
 const comparisonBlock    = document.getElementById('comparisonBlock');
 const targetDisplay      = document.getElementById('targetDisplay');
+const targetPinyin       = document.getElementById('targetPinyin');
 const diffDisplay        = document.getElementById('diffDisplay');
 const scoreValue              = document.getElementById('scoreValue');
 const tryAgainBtn             = document.getElementById('tryAgainBtn');
@@ -141,6 +142,12 @@ function handleTranscript(transcript) {
     const { charResults, score } = compareChars(target, transcript);
 
     targetDisplay.textContent = target;
+    if (typeof pinyinPro !== 'undefined') {
+      targetPinyin.textContent = pinyinPro.pinyin(target, { separator: ' ' });
+      targetPinyin.hidden = false;
+    } else {
+      targetPinyin.hidden = true;
+    }
     renderDiff(charResults);
     scoreValue.textContent = score + '%';
     // ≥ 90 % → green; < 90 % → default red
@@ -160,23 +167,46 @@ function handleTranscript(transcript) {
    and an English translation (via the MyMemory free API) below
    the "You said" Chinese text.
    ──────────────────────────────────────────────────────────── */
+/* ── Get pinyin for Chinese text ───────────────────────────────
+   Uses pinyin-pro CDN library if loaded, otherwise falls back
+   to the MyMemory transliteration API (zh-CN → pinyin).
+   ──────────────────────────────────────────────────────────── */
+function getPinyinLib() {
+  if (typeof pinyinPro !== 'undefined') return pinyinPro;
+  if (typeof pinyin_pro !== 'undefined') return pinyin_pro;
+  return null;
+}
+
+async function getPinyin(chineseText) {
+  const lib = getPinyinLib();
+  if (lib) return lib.pinyin(chineseText, { separator: ' ' });
+  return null;
+}
+
 async function showTranscriptAnnotations(chineseText) {
-  // ── Pinyin ────────────────────────────────────────────────
-  // pinyinPro is injected by the CDN <script> tag in index.html.
-  // If the library didn't load (first offline visit) we skip quietly.
-  if (typeof pinyinPro !== 'undefined') {
-    transcribedPinyin.textContent = pinyinPro.pinyin(chineseText, { separator: ' ' });
-    transcribedPinyin.hidden = false;
+  // ── Show placeholders ────────────────────────────────────
+  transcribedEnglish.textContent    = 'Translating…';
+  transcribedEnglish.hidden         = false;
+  transcribedPortuguese.textContent = 'Traduzindo…';
+  transcribedPortuguese.hidden      = false;
+  transcribedPinyin.textContent     = '…';
+  transcribedPinyin.hidden          = false;
+
+  // ── Fetch all in parallel ────────────────────────────────
+  const [english, portuguese, pinyin] = await Promise.all([
+    translateText(chineseText, 'zh-CN', 'en'),
+    translateText(chineseText, 'zh-CN', 'pt-BR'),
+    getPinyin(chineseText),
+  ]);
+
+  transcribedEnglish.textContent    = english    ?? '(Translation unavailable)';
+  transcribedPortuguese.textContent = portuguese ?? '(Tradução indisponível)';
+  if (pinyin) {
+    transcribedPinyin.textContent = pinyin;
+    transcribedPinyin.hidden      = false;
   } else {
     transcribedPinyin.hidden = true;
   }
-
-  // ── English translation ────────────────────────────────────
-  transcribedEnglish.textContent = 'Translating…';
-  transcribedEnglish.hidden = false;
-
-  const english = await translateText(chineseText, 'zh', 'en');
-  transcribedEnglish.textContent = english ?? '(Translation unavailable offline)';
 }
 
 /* ── Free Translation API (MyMemory) ───────────────────────────
@@ -211,6 +241,22 @@ async function translateText(text, fromLang, toLang) {
   }
 }
 
+/* ── Character normalisation for comparison ────────────────────
+   Treats uppercase = lowercase and hanzi digits = arabic digits
+   so the diff is not penalised for stylistic differences.
+   ──────────────────────────────────────────────────────────── */
+const HANZI_TO_DIGIT = {
+  '零':'0','〇':'0',
+  '一':'1','二':'2','三':'3','四':'4','五':'5',
+  '六':'6','七':'7','八':'8','九':'9',
+};
+
+function normalizeChar(ch) {
+  if (!ch) return ch;
+  const lower = ch.toLowerCase();
+  return HANZI_TO_DIGIT[lower] ?? lower;
+}
+
 /* ── Character Comparison ──────────────────────────────────────
    Aligns target and transcript by position; classifies each
    slot as: correct | wrong | missing | extra.
@@ -227,7 +273,7 @@ function compareChars(target, transcript) {
     const sChar = sChars[i];
 
     if (tChar !== undefined && sChar !== undefined) {
-      if (tChar === sChar) {
+      if (normalizeChar(tChar) === normalizeChar(sChar)) {
         matches++;
         charResults.push({ char: sChar, type: 'correct' });
       } else {
@@ -283,6 +329,9 @@ function resetUI() {
   transcribedEl.textContent          = '';
   transcribedPinyin.hidden           = true;
   transcribedEnglish.hidden          = true;
+  transcribedPortuguese.hidden       = true;
+  targetPinyin.hidden                = true;
+  targetPinyin.textContent           = '';
   pronounceTranscribedBtn.hidden     = true;
   pronounceTranscribedBtn.classList.remove('btn-pronounce--speaking');
   targetDisplay.textContent          = '';
@@ -456,19 +505,17 @@ pronounceTranscribedBtn.addEventListener('click', () => {
      • nihao    (plain, compact)
    ============================================================ */
 
-const TONE_STRIP = {
-  'ā':'a','á':'a','ǎ':'a','à':'a',
-  'ē':'e','é':'e','ě':'e','è':'e',
-  'ī':'i','í':'i','ǐ':'i','ì':'i',
-  'ō':'o','ó':'o','ǒ':'o','ò':'o',
-  'ū':'u','ú':'u','ǔ':'u','ù':'u',
-  'ǖ':'v','ǘ':'v','ǚ':'v','ǜ':'v','ü':'v',
-};
-
+/* ── Robust tone stripping via NFD decomposition ─────────────
+   NFD splits e.g. ǒ → o + U+030C (combining caron).
+   We handle ü → v first, then strip all combining diacritics.
+   This works regardless of how the OS/keyboard encodes the input.
+   ──────────────────────────────────────────────────────────── */
 function normalizePinyin(str) {
   return str
+    .normalize('NFD')
     .toLowerCase()
-    .replace(/[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜü]/g, ch => TONE_STRIP[ch] ?? ch)
+    .replace(/u\u0308/g, 'v')            // ü (u + combining diaeresis) → v
+    .replace(/[\u0300-\u036f]/g, '')      // strip all combining diacritics
     .replace(/([a-z]+)[1-5]/g, '$1');
 }
 
@@ -761,16 +808,26 @@ const EN_WORDS = new Set([
 function looksLikePinyin(str) {
   if (!str.trim()) return false;
   if (/[\u4e00-\u9fff\u3400-\u4dbf]/.test(str)) return false;
-  const norm = normalizePinyin(str).trim();
+
+  // Tone-marked vowels are a definitive pinyin signal.
+  // Use NFD: any combining diacritical mark means tones are present.
+  const hasToneMarks = /[\u0300-\u036f]/.test(str.normalize('NFD'));
+
+  const norm = normalizePinyin(str).replace(/[.,!?;:，。！？；：…""''「」\-]/g, '').trim();
   if (!/^[a-z1-5\s''·]+$/.test(norm)) return false;
 
   // Reject immediately if any space-separated token is a known English word
   const tokens = norm.split(/\s+/);
-  if (tokens.some(t => EN_WORDS.has(t))) return false;
+  // If tone marks are present, skip the English-word and consonant-cluster
+  // rejection — tone marks are unambiguous pinyin.
+  if (!hasToneMarks) {
+    if (tokens.some(t => EN_WORDS.has(t))) return false;
+    if (/th|wh|gh|ph|ck|qu/.test(norm)) return false;
+    if (/([bcdfghjklmnpqrstvwxyz])\1/.test(norm)) return false;
+  }
 
-  // Also reject English consonant clusters impossible in Mandarin
-  if (/th|wh|gh|ph|ck|qu/.test(norm)) return false;
-  if (/([bcdfghjklmnpqrstvwxyz])\1/.test(norm)) return false; // double consonant
+  // If tone marks present and syllables look reasonable, accept immediately
+  if (hasToneMarks) return true;
 
   // Syllable coverage check
   let total = 0, matched = 0;
@@ -812,6 +869,60 @@ function looksLikeEnglish(str) {
   return /[a-zA-Z]{2,}/.test(str);
 }
 
+/* ── Detect Portuguese ────────────────────────────────────────
+   True when the string is likely Brazilian Portuguese.
+   Must be checked BEFORE pinyin — many PT words (ola, boa, dia)
+   are valid pinyin syllable sequences and would be misclassified.
+   ──────────────────────────────────────────────────────────── */
+const PT_WORDS = new Set([
+  // Greetings / common phrases
+  'ola','olá','oi','bom','boa','noite','tarde','manha','manhã',
+  'tchau','obrigado','obrigada',
+  // Pronouns / connectives (long enough to be unambiguous)
+  'voce','você','nao','não','sim','isso','este','esta','essa',
+  'nosso','nossa','meu','minha','seu','sua',
+  // Verbs
+  'fazer','estar','falar','quero','posso','tenho','preciso',
+  'gosto','acho','saber','poder','vamos','estou','estamos',
+  // Common words
+  'muito','pouco','aqui','agora','hoje','amanha','amanhã',
+  'porque','entao','então','quando','onde','como','para',
+  'obrigado','obrigada','desculpa','desculpe',
+  // Animals / everyday nouns
+  'cachorro','gato','casa','carro','comida','agua','água',
+  'livro','escola','trabalho','amigo','amiga','pessoa',
+  'homem','mulher','criança','menino','menina','filho','filha',
+]);
+
+function looksLikePortuguese(str) {
+  if (!str.trim()) return false;
+  if (/[\u4e00-\u9fff]/.test(str)) return false;
+  // Portuguese-specific accent characters are a definitive signal
+  if (/[ãõçêâúíóàáéèÃÕÇÊÂÚÍÓÀÁÉÈ]/.test(str)) return true;
+  // Check known PT words — do NOT call looksLikePinyin here;
+  // many PT words (ola=o+la, boa=bo+a) score high on pinyin coverage
+  const tokens = str.toLowerCase().split(/\s+/).filter(Boolean);
+  return tokens.some(t => PT_WORDS.has(t));
+}
+
+/* ── Unified language detector for the input field ───────────
+   Returns: 'pinyin' | 'pt-BR' | 'en' | null
+   Portuguese is checked FIRST — it must win over pinyin for
+   words like "ola", "boa", "dia" that are valid in both.
+   ──────────────────────────────────────────────────────────── */
+function detectInputLang(str) {
+  if (!str.trim()) return null;
+  if (/[\u4e00-\u9fff]/.test(str)) return null;
+  // Pinyin-specific tone marks (macron U+0304, caron U+030C) are unambiguous.
+  // Check pinyin first when they're present so Portuguese doesn't grab shared accents.
+  const hasPinyinTones = /[\u0304\u030C]/.test(str.normalize('NFD'));
+  if (hasPinyinTones && looksLikePinyin(str)) return 'pinyin';
+  if (looksLikePortuguese(str)) return 'pt-BR';
+  if (looksLikePinyin(str))     return 'pinyin';
+  if (looksLikeEnglish(str))    return 'en';
+  return null;
+}
+
 /* ── Convert a single compact token (no spaces) ───────────────
    Greedy longest-match so "nihao" → ni + hao → 你好.
    ──────────────────────────────────────────────────────────── */
@@ -832,12 +943,25 @@ function convertToken(token) {
   return result;
 }
 
+/* ── Punctuation map: Western → Chinese equivalents ────────── */
+const PUNCT_MAP = {
+  '.':'。', ',':'，', '!':'！', '?':'？', ';':'；', ':':'：',
+  '…':'…', '"':'「', '"':'」',
+};
+
 /* ── Convert a full pinyin string → Chinese ────────────────── */
 function convertPinyin(raw) {
   const norm = normalizePinyin(raw).trim();
   if (!norm) return raw;
   if (PY[norm]) return PY[norm];
-  return norm.split(/\s+/).map(convertToken).join('');
+  return norm.split(/\s+/).map(token => {
+    // Separate trailing punctuation from the syllable
+    const m = token.match(/^([a-z1-5''·]+)([.,!?;:…""]+)?$/);
+    if (!m) return token;                       // not pinyin, pass through
+    const hanzi = convertToken(m[1]);
+    const punct = m[2] ? m[2].split('').map(c => PUNCT_MAP[c] || c).join('') : '';
+    return hanzi + punct;
+  }).join('');
 }
 
 
@@ -855,13 +979,30 @@ function convertPinyin(raw) {
    if the field hasn't been edited while the request was in-flight.
    On failure it re-surfaces the button as a manual retry.
    ──────────────────────────────────────────────────────────── */
-async function autoTranslateInput(val) {
-  const result = await translateText(val.trim(), 'en', 'zh');
+async function autoTranslateInput(val, fromLang = 'en') {
+  // MyMemory's pt-BR|zh-CN pair has weak coverage.
+  // Chain through English (pt-BR → en → zh-CN) for reliable results.
+  let result;
+  if (fromLang === 'pt-BR') {
+    const intermediate = await translateText(val.trim(), 'pt-BR', 'en');
+    result = intermediate ? await translateText(intermediate, 'en', 'zh-CN') : null;
+  } else {
+    result = await translateText(val.trim(), fromLang, 'zh-CN');
+    // Fallback: if English translation failed, try as Portuguese
+    // (handles PT words not in our word list that were misdetected as English)
+    if ((!result || result === val.trim()) && fromLang === 'en') {
+      const intermediate = await translateText(val.trim(), 'pt-BR', 'en');
+      if (intermediate && intermediate !== val.trim()) {
+        result = await translateText(intermediate, 'en', 'zh-CN');
+      }
+    }
+  }
   if (targetInput.value !== val) return;   // user edited while we waited
 
-  if (result) {
+  if (result && result !== val.trim()) {
     targetInput.value = result;
     translateInputBtn.hidden   = true;
+    translateInputBtn.disabled = false;
     convertBtn.hidden          = true;
     // Show pronounce button now that the field has Chinese text
     pronounceTargetBtn.hidden  = false;
@@ -872,54 +1013,57 @@ async function autoTranslateInput(val) {
   }
 }
 
-/* ── Input event: show correct button, update pronounce btn ─── */
-targetInput.addEventListener('input', () => {
-  const val      = targetInput.value;
-  const isPy     = looksLikePinyin(val);
-  const isEn     = !isPy && looksLikeEnglish(val);
+/* ── Language override state ───────────────────────────────── */
+let langOverride = null;   // null = use auto-detection
+
+/* ── Update buttons and chips for the active language ──────── */
+function applyLang(lang) {
+  const val       = targetInput.value;
+  const isPy      = lang === 'pinyin';
   const isChinese = /[\u4e00-\u9fff]/.test(val);
 
-  convertBtn.hidden          = !isPy;
-  translateInputBtn.hidden   = !isEn;
-  pronounceTargetBtn.hidden  = !isChinese || !val.trim();
+  convertBtn.hidden         = !isPy;
+  translateInputBtn.hidden  = !lang || isPy;
+  translateInputBtn.textContent = '→ Translate to Chinese';
+  translateInputBtn.disabled    = false;
+  pronounceTargetBtn.hidden = !isChinese || !val.trim();
+
+  // Update chip row visibility and active state
+  const showChips = !!(lang || (isChinese && val.trim()));
+  detectedLangRow.hidden = !showChips;
+  langChips.forEach(chip => {
+    chip.classList.toggle('active', chip.dataset.lang === lang);
+  });
+}
+
+/* ── Resolve current language (override or auto-detect) ────── */
+function currentLang() {
+  return langOverride || detectInputLang(targetInput.value);
+}
+
+/* ── Input event: auto-detect, reset override ─────────────── */
+targetInput.addEventListener('input', () => {
+  langOverride = null;       // new typing resets manual override
+  applyLang(detectInputLang(targetInput.value));
+});
+
+/* ── Chip click: manual language override ─────────────────── */
+langChips.forEach(chip => {
+  chip.addEventListener('click', () => {
+    const chosen = chip.dataset.lang;
+    langOverride = chosen;
+    applyLang(chosen);
+  });
 });
 
 /* ── Paste event ───────────────────────────────────────────────
-   Pinyin  → convert synchronously, replace immediately.
-   English → insert pasted text, then call translate API at once.
+   No auto-conversion — just let the text be pasted normally.
+   The input event handler will detect the language and show
+   the appropriate button for manual conversion / translation.
    ──────────────────────────────────────────────────────────── */
-targetInput.addEventListener('paste', (e) => {
-  const pasted = e.clipboardData?.getData('text') ?? '';
-
-  if (looksLikePinyin(pasted)) {
-    // ── Instant pinyin conversion ──────────────────────────
-    e.preventDefault();
-    const converted = convertPinyin(pasted);
-    const start = targetInput.selectionStart ?? 0;
-    const end   = targetInput.selectionEnd   ?? 0;
-    targetInput.value =
-      targetInput.value.slice(0, start) + converted + targetInput.value.slice(end);
-    targetInput.selectionStart = targetInput.selectionEnd = start + converted.length;
-    convertBtn.hidden         = true;
-    translateInputBtn.hidden  = true;
-    pronounceTargetBtn.hidden = !/[\u4e00-\u9fff]/.test(targetInput.value);
-
-  } else if (looksLikeEnglish(pasted)) {
-    // ── Immediate English → Chinese translation ────────────
-    e.preventDefault();
-    const start = targetInput.selectionStart ?? 0;
-    const end   = targetInput.selectionEnd   ?? 0;
-    const full  = targetInput.value.slice(0, start) + pasted + targetInput.value.slice(end);
-    targetInput.value = full;
-    targetInput.selectionStart = targetInput.selectionEnd = start + pasted.length;
-    translateInputBtn.hidden = true;
-    autoTranslateInput(full);
-  }
-});
 
 /* ── Convert button: manual pinyin → characters ────────────── */
 convertBtn.addEventListener('click', () => {
-  if (!looksLikePinyin(targetInput.value)) return;
   targetInput.value = convertPinyin(targetInput.value);
   convertBtn.hidden         = true;
   pronounceTargetBtn.hidden = false;
@@ -932,6 +1076,8 @@ translateInputBtn.addEventListener('click', async () => {
   if (!val) return;
   translateInputBtn.disabled    = true;
   translateInputBtn.textContent = 'Translating…';
-  await autoTranslateInput(val);
-  translateInputBtn.disabled = false;
+  const lang     = currentLang();
+  const fromLang = lang === 'pt-BR' ? 'pt-BR' : 'en';
+  await autoTranslateInput(val, fromLang);
+  // State (re-enable / hide) is handled entirely inside autoTranslateInput
 });
