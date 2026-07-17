@@ -1,8 +1,8 @@
 /* ============================================================
-   Mandarin Pronunciation Practice — Application Logic  v2.3.6
+   Mandarin Pronunciation Practice — Application Logic  v2.4.0
    ============================================================
    Features:
-     • Speech recognition (zh-CN) with char-by-char diff + score
+     • Speech recognition (zh-CN) with LCS-aligned diff + score
      • Pinyin auto-convert:  nǐ hǎo / ni3hao3 / nihao → 你好
      • English auto-translate (input): "hello" → 你好
      • Transcription annotations: pinyin line + English line
@@ -187,7 +187,11 @@ async function getPinyin(chineseText) {
   return null;
 }
 
+let annotationGeneration = 0;   // invalidates stale in-flight fetches
+
 async function showTranscriptAnnotations(chineseText) {
+  const gen = ++annotationGeneration;
+
   // ── Show placeholders ────────────────────────────────────
   transcribedEnglish.textContent    = 'Translating…';
   transcribedEnglish.hidden         = false;
@@ -203,6 +207,9 @@ async function showTranscriptAnnotations(chineseText) {
     getPinyin(chineseText),
   ]);
 
+  // Discard if the UI was reset or a newer transcript arrived meanwhile
+  if (gen !== annotationGeneration) return;
+
   transcribedEnglish.textContent    = english    ?? '(Translation unavailable)';
   transcribedPortuguese.textContent = portuguese ?? '(Tradução indisponível)';
   if (pinyin) {
@@ -213,23 +220,68 @@ async function showTranscriptAnnotations(chineseText) {
   }
 }
 
-/* ── Free Translation API (MyMemory) ───────────────────────────
-   Rate limit: 5 000 chars/day without key, no sign-up required.
+/* ── Translation ───────────────────────────────────────────────
+   Primary:  Google Translate free "gtx" endpoint — best quality,
+             handles pt-BR ↔ zh-CN directly. Unofficial, so it
+             may break someday; the fallback covers that.
+   Fallback: MyMemory free API — 5 000 chars/day anonymous; set
+             MYMEMORY_EMAIL to raise the limit to 50 000/day.
    Returns the translated string, or null on any failure.
    ──────────────────────────────────────────────────────────── */
-async function translateText(text, fromLang, toLang) {
-  // Use AbortController so a slow connection doesn't block the UI forever
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+const MYMEMORY_EMAIL = '';   // optional contact email → higher MyMemory quota
 
+async function translateText(text, fromLang, toLang) {
+  const result = await translateGoogle(text, fromLang, toLang);
+  return result ?? translateMyMemory(text, fromLang, toLang);
+}
+
+/* AbortController so a slow connection doesn't block the UI forever */
+function fetchWithTimeout(url, ms = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { signal: controller.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+async function translateGoogle(text, fromLang, toLang) {
+  try {
+    const sl  = fromLang === 'pt-BR' ? 'pt' : fromLang;
+    const tl  = toLang   === 'pt-BR' ? 'pt' : toLang;
+    const url =
+      `https://translate.googleapis.com/translate_a/single` +
+      `?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
+
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    // data[0] is a list of [translatedSegment, sourceSegment, …] entries
+    const out = (data?.[0] ?? []).map(seg => seg?.[0] ?? '').join('').trim();
+    return out || null;
+  } catch (e) {
+    console.warn('[Translate:Google]', e.name === 'AbortError' ? 'Timed out' : e.message);
+    return null;
+  }
+}
+
+async function translateMyMemory(text, fromLang, toLang) {
+  // MyMemory's direct pt-BR ↔ zh-CN pair has weak coverage:
+  // chain through English for reliable results.
+  if (fromLang === 'pt-BR' && toLang === 'zh-CN') {
+    const english = await myMemoryRequest(text, 'pt-BR', 'en');
+    return english ? myMemoryRequest(english, 'en', 'zh-CN') : null;
+  }
+  return myMemoryRequest(text, fromLang, toLang);
+}
+
+async function myMemoryRequest(text, fromLang, toLang) {
   try {
     const url =
       `https://api.mymemory.translated.net/get` +
-      `?q=${encodeURIComponent(text)}&langpair=${fromLang}|${toLang}`;
+      `?q=${encodeURIComponent(text)}&langpair=${fromLang}|${toLang}` +
+      (MYMEMORY_EMAIL ? `&de=${encodeURIComponent(MYMEMORY_EMAIL)}` : '');
 
-    const res  = await fetch(url, { signal: controller.signal });
-    clearTimeout(timer);
-
+    const res = await fetchWithTimeout(url);
     if (!res.ok) return null;
 
     const data = await res.json();
@@ -239,8 +291,7 @@ async function translateText(text, fromLang, toLang) {
     }
     return null;
   } catch (e) {
-    clearTimeout(timer);
-    console.warn('[Translate]', e.name === 'AbortError' ? 'Timed out' : e.message);
+    console.warn('[Translate:MyMemory]', e.name === 'AbortError' ? 'Timed out' : e.message);
     return null;
   }
 }
@@ -262,38 +313,72 @@ function normalizeChar(ch) {
 }
 
 /* ── Character Comparison ──────────────────────────────────────
-   Aligns target and transcript by position; classifies each
-   slot as: correct | wrong | missing | extra.
+   Aligns target and transcript with an LCS (longest common
+   subsequence) so a single inserted or dropped character no
+   longer shifts everything after it out of alignment.
+   Punctuation, whitespace and symbols are ignored — the Speech
+   API rarely returns them, so they shouldn't cost points.
+   Classifies each slot as: correct | wrong | missing | extra.
    ──────────────────────────────────────────────────────────── */
+const IGNORED_CHAR = /[\s\p{P}\p{S}]/u;
+
 function compareChars(target, transcript) {
-  const tChars = Array.from(target);
-  const sChars = Array.from(transcript);
-  const maxLen = Math.max(tChars.length, sChars.length);
-  const charResults = [];
-  let matches = 0;
+  const tChars = Array.from(target).filter(ch => !IGNORED_CHAR.test(ch));
+  const sChars = Array.from(transcript).filter(ch => !IGNORED_CHAR.test(ch));
+  const tNorm  = tChars.map(normalizeChar);
+  const sNorm  = sChars.map(normalizeChar);
+  const m = tChars.length;
+  const n = sChars.length;
 
-  for (let i = 0; i < maxLen; i++) {
-    const tChar = tChars[i];
-    const sChar = sChars[i];
-
-    if (tChar !== undefined && sChar !== undefined) {
-      if (normalizeChar(tChar) === normalizeChar(sChar)) {
-        matches++;
-        charResults.push({ char: sChar, type: 'correct' });
-      } else {
-        charResults.push({ char: sChar, type: 'wrong', expected: tChar });
-      }
-    } else if (sChar !== undefined) {
-      charResults.push({ char: sChar, type: 'extra' });
-    } else {
-      charResults.push({ char: tChar, type: 'missing' });
+  // dp[i][j] = LCS length of tChars[i:] vs sChars[j:]
+  const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = m - 1; i >= 0; i--) {
+    for (let j = n - 1; j >= 0; j--) {
+      dp[i][j] = tNorm[i] === sNorm[j]
+        ? dp[i + 1][j + 1] + 1
+        : Math.max(dp[i + 1][j], dp[i][j + 1]);
     }
   }
 
-  const score = tChars.length > 0
-    ? Math.round((matches / tChars.length) * 100)
-    : 0;
+  // Walk the alignment; pair up unmatched runs as substitutions
+  // ("wrong") instead of separate missing + extra entries.
+  const charResults = [];
+  let matches = 0;
+  let i = 0, j = 0;
+  let missingRun = [], extraRun = [];
 
+  const flushRuns = () => {
+    const pairs = Math.min(missingRun.length, extraRun.length);
+    for (let k = 0; k < pairs; k++) {
+      charResults.push({ char: extraRun[k], type: 'wrong', expected: missingRun[k] });
+    }
+    for (let k = pairs; k < extraRun.length; k++) {
+      charResults.push({ char: extraRun[k], type: 'extra' });
+    }
+    for (let k = pairs; k < missingRun.length; k++) {
+      charResults.push({ char: missingRun[k], type: 'missing' });
+    }
+    missingRun = [];
+    extraRun   = [];
+  };
+
+  while (i < m || j < n) {
+    if (i < m && j < n && tNorm[i] === sNorm[j]) {
+      flushRuns();
+      matches++;
+      charResults.push({ char: sChars[j], type: 'correct' });
+      i++; j++;
+    } else if (j < n && (i === m || dp[i][j + 1] >= dp[i + 1][j])) {
+      extraRun.push(sChars[j]);
+      j++;
+    } else {
+      missingRun.push(tChars[i]);
+      i++;
+    }
+  }
+  flushRuns();
+
+  const score = m > 0 ? Math.round((matches / m) * 100) : 0;
   return { charResults, score };
 }
 
@@ -320,13 +405,8 @@ function renderDiff(charResults) {
 function showStatus(message) { statusEl.textContent = message; }
 
 function resetUI() {
-  // Stop any ongoing audio (Edge TTS or Web Speech fallback)
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
-    currentAudio = null;
-  }
-  window.speechSynthesis?.cancel();
+  annotationGeneration++;   // drop any in-flight translation results
+  stopCurrentAudio();       // stop Edge TTS / Web Speech playback
 
   resultsSection.hidden              = true;
   comparisonBlock.hidden             = true;
@@ -363,13 +443,38 @@ const EDGE_TTS_RATE  = '-25%';
 const EDGE_TTS_WS    = 'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1';
 
 let currentAudio    = null;
+let currentAudioUrl = null;
 let currentSpeakBtn = null;
+let speakGeneration = 0;      // invalidates in-flight TTS fetches
+
+/* ── Stop any playing / pending audio and release resources ── */
+function stopCurrentAudio() {
+  speakGeneration++;          // cancel any in-flight Edge TTS fetch
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
+  if (currentAudioUrl) {
+    URL.revokeObjectURL(currentAudioUrl);
+    currentAudioUrl = null;
+  }
+  currentSpeakBtn?.classList.remove('btn-pronounce--speaking');
+  currentSpeakBtn = null;
+  window.speechSynthesis?.cancel();
+}
 
 function makeUUID() {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = Math.random() * 16 | 0;
     return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
   });
+}
+
+/* Escape text for embedding inside SSML/XML */
+function escapeXml(str) {
+  return str.replace(/[&<>'"]/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&apos;', '"': '&quot;',
+  }[c]));
 }
 
 function edgeTTSRequest(text) {
@@ -398,13 +503,13 @@ function edgeTTSRequest(text) {
       const ssml  =
         `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'>` +
         `<voice name='${EDGE_TTS_VOICE}'>` +
-        `<prosody rate='${EDGE_TTS_RATE}'>${text}</prosody>` +
+        `<prosody rate='${EDGE_TTS_RATE}'>${escapeXml(text)}</prosody>` +
         `</voice></speak>`;
 
       ws.send(
         `X-RequestId:${reqId}\r\n` +
         `Content-Type:application/ssml+xml\r\n` +
-        `X-Timestamp:${ts}Z\r\n` +
+        `X-Timestamp:${ts}\r\n` +
         `Path:ssml\r\n\r\n` + ssml
       );
     };
@@ -433,45 +538,35 @@ function edgeTTSRequest(text) {
 async function speak(text, btn) {
   if (!text.trim()) return;
 
-  // Toggle off if already speaking via this button
-  if (currentSpeakBtn === btn && currentAudio && !currentAudio.paused) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
-    btn?.classList.remove('btn-pronounce--speaking');
-    currentSpeakBtn = null;
-    return;
-  }
-
-  // Stop any other audio that's playing
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
-    currentSpeakBtn?.classList.remove('btn-pronounce--speaking');
-    currentAudio = null;
-  }
-  window.speechSynthesis?.cancel();
+  // A second click on the active button acts as a stop button
+  // (this also cancels a TTS fetch that is still in flight)
+  const toggleOff = currentSpeakBtn === btn;
+  stopCurrentAudio();
+  if (toggleOff) return;
 
   btn?.classList.add('btn-pronounce--speaking');
   currentSpeakBtn = btn;
+  const gen = speakGeneration;
 
   try {
     const blob = await edgeTTSRequest(text);
-    const url  = URL.createObjectURL(blob);
+    if (gen !== speakGeneration) return;   // superseded / stopped meanwhile
+
+    const url   = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    currentAudio = audio;
+    currentAudio    = audio;
+    currentAudioUrl = url;
 
     audio.onended = audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      btn?.classList.remove('btn-pronounce--speaking');
-      if (currentSpeakBtn === btn) currentSpeakBtn = null;
-      currentAudio = null;
+      if (currentAudio === audio) stopCurrentAudio();
+      else URL.revokeObjectURL(url);       // superseded; just free the blob
     };
 
     await audio.play();
   } catch (err) {
+    if (gen !== speakGeneration) return;
     console.warn('[EdgeTTS] Failed, falling back to Web Speech:', err);
-    btn?.classList.remove('btn-pronounce--speaking');
-    if (currentSpeakBtn === btn) currentSpeakBtn = null;
+    stopCurrentAudio();
     speakWebSpeech(text, btn);
   }
 }
@@ -802,6 +897,8 @@ const EN_WORDS = new Set([
   // Greetings / common phrases
   'hello','bye','yes','please','sorry','thanks','thank','excuse',
   'today','tomorrow','yesterday','morning','evening',
+  // qu- words ('qu' is a valid pinyin syllable, so these need listing)
+  'question','quite','quiet','quality','queen','quit','quiz','quarter',
 ]);
 
 /* ── Detect pinyin ─────────────────────────────────────────────
@@ -826,7 +923,8 @@ function looksLikePinyin(str) {
   // rejection — tone marks are unambiguous pinyin.
   if (!hasToneMarks) {
     if (tokens.some(t => EN_WORDS.has(t))) return false;
-    if (/th|wh|gh|ph|ck|qu/.test(norm)) return false;
+    // NOTE: no 'qu' here — it is a valid pinyin syllable (去 qù)
+    if (/th|wh|gh|ph|ck/.test(norm)) return false;
     if (/([bcdfghjklmnpqrstvwxyz])\1/.test(norm)) return false;
   }
 
@@ -949,8 +1047,7 @@ function convertToken(token) {
 
 /* ── Punctuation map: Western → Chinese equivalents ────────── */
 const PUNCT_MAP = {
-  '.':'。', ',':'，', '!':'！', '?':'？', ';':'；', ':':'：',
-  '…':'…', '"':'「', '"':'」',
+  '.':'。', ',':'，', '!':'！', '?':'？', ';':'；', ':':'：', '…':'…',
 };
 
 /* ── Convert a full pinyin string → Chinese ────────────────── */
@@ -958,12 +1055,24 @@ function convertPinyin(raw) {
   const norm = normalizePinyin(raw).trim();
   if (!norm) return raw;
   if (PY[norm]) return PY[norm];
+
+  // Straight double quotes alternate between opening 「 and closing 」
+  let quoteOpen = true;
+  const mapPunct = c => {
+    if (c === '"') {
+      const q = quoteOpen ? '「' : '」';
+      quoteOpen = !quoteOpen;
+      return q;
+    }
+    return PUNCT_MAP[c] || c;
+  };
+
   return norm.split(/\s+/).map(token => {
     // Separate trailing punctuation from the syllable
-    const m = token.match(/^([a-z1-5''·]+)([.,!?;:…""]+)?$/);
+    const m = token.match(/^([a-z1-5'·]+)([.,!?;:…"]+)?$/);
     if (!m) return token;                       // not pinyin, pass through
     const hanzi = convertToken(m[1]);
-    const punct = m[2] ? m[2].split('').map(c => PUNCT_MAP[c] || c).join('') : '';
+    const punct = m[2] ? m[2].split('').map(mapPunct).join('') : '';
     return hanzi + punct;
   }).join('');
 }
@@ -984,23 +1093,16 @@ function convertPinyin(raw) {
    On failure it re-surfaces the button as a manual retry.
    ──────────────────────────────────────────────────────────── */
 async function autoTranslateInput(val, fromLang = 'en') {
-  // MyMemory's pt-BR|zh-CN pair has weak coverage.
-  // Chain through English (pt-BR → en → zh-CN) for reliable results.
-  let result;
-  if (fromLang === 'pt-BR') {
-    const intermediate = await translateText(val.trim(), 'pt-BR', 'en');
-    result = intermediate ? await translateText(intermediate, 'en', 'zh-CN') : null;
-  } else {
-    result = await translateText(val.trim(), fromLang, 'zh-CN');
-    // Fallback: if English translation failed, try as Portuguese
-    // (handles PT words not in our word list that were misdetected as English)
-    if ((!result || result === val.trim()) && fromLang === 'en') {
-      const intermediate = await translateText(val.trim(), 'pt-BR', 'en');
-      if (intermediate && intermediate !== val.trim()) {
-        result = await translateText(intermediate, 'en', 'zh-CN');
-      }
-    }
+  let result = await translateText(val.trim(), fromLang, 'zh-CN');
+
+  // Fallback: if English translation failed or came back unchanged, retry
+  // as Portuguese (handles PT words missing from our word list that were
+  // misdetected as English)
+  if ((!result || result === val.trim()) && fromLang === 'en') {
+    const ptResult = await translateText(val.trim(), 'pt-BR', 'zh-CN');
+    if (ptResult && ptResult !== val.trim()) result = ptResult;
   }
+
   if (targetInput.value !== val) return;   // user edited while we waited
 
   if (result && result !== val.trim()) {
