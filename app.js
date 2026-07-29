@@ -60,16 +60,28 @@ if (!SpeechRecognition) {
 let recognition = null;
 let isRecording  = false;
 
+/* Which UI initiated the current recording — the record button, its label,
+   the status element and the callback that receives the transcript.
+   Defaults to the Practice view; the Flashcards view swaps it in on click. */
+const practiceRec = {
+  btn:      recordBtn,
+  label:    recordLabel,
+  statusEl: statusEl,
+  onResult: handleTranscript,
+};
+let activeRec = practiceRec;
+
 recordBtn.addEventListener('click', () => {
   if (isRecording) stopRecording();
-  else             startRecording();
+  else             startRecording(practiceRec);
 });
 
 tryAgainBtn.addEventListener('click', resetUI);
 
 /* ── Start / Stop Recording ────────────────────────────────── */
-function startRecording() {
+function startRecording(ctx) {
   if (!SpeechRecognition) return;
+  activeRec = ctx;
 
   recognition = new SpeechRecognition();
   recognition.lang            = 'zh-CN';
@@ -79,22 +91,24 @@ function startRecording() {
 
   recognition.onstart = () => {
     isRecording = true;
-    recordBtn.classList.add('record-btn--recording');
-    recordBtn.setAttribute('aria-pressed', 'true');
-    recordBtn.setAttribute('aria-label', 'Stop recording');
-    recordLabel.textContent = 'Listening…';
-    showStatus('Speak now in Mandarin…');
+    activeRec.btn.classList.add('record-btn--recording');
+    activeRec.btn.setAttribute('aria-pressed', 'true');
+    activeRec.btn.setAttribute('aria-label', 'Stop recording');
+    activeRec.label.textContent = 'Listening…';
+    showStatus('Speak now in Mandarin…', activeRec.statusEl);
+    startMicMeter(activeRec.btn);
   };
 
   recognition.onresult = (event) => {
     const transcript = event.results[0][0].transcript.trim();
-    handleTranscript(transcript);
+    activeRec.onResult(transcript);
   };
 
   recognition.onend  = () => setIdleState();
 
   recognition.onerror = (event) => {
     console.warn('[Speech] Error:', event.error);
+    const target = activeRec.statusEl;
     setIdleState();
     const messages = {
       'no-speech':           'No speech detected. Please try again.',
@@ -105,7 +119,7 @@ function startRecording() {
       'service-not-allowed': 'Speech service not allowed (needs HTTPS).',
     };
     const msg = messages[event.error];
-    if (msg) showStatus('⚠️ ' + msg);
+    if (msg) showStatus('⚠️ ' + msg, target);
   };
 
   try { recognition.start(); }
@@ -118,10 +132,65 @@ function stopRecording() {
 
 function setIdleState() {
   isRecording = false;
-  recordBtn.classList.remove('record-btn--recording');
-  recordBtn.setAttribute('aria-pressed', 'false');
-  recordBtn.setAttribute('aria-label', 'Start recording');
-  recordLabel.textContent = 'Tap to Speak';
+  stopMicMeter();
+  activeRec.btn.classList.remove('record-btn--recording');
+  activeRec.btn.setAttribute('aria-pressed', 'false');
+  activeRec.btn.setAttribute('aria-label', 'Start recording');
+  activeRec.label.textContent = 'Tap to Speak';
+}
+
+/* ── Live microphone level meter ───────────────────────────────
+   Opens a second mic stream (independent of the Speech API) and
+   measures input volume each frame, exposing it as the CSS
+   --mic-level custom property (0–1) on the active record button.
+   Purely cosmetic — if it fails, recording still works.
+   ──────────────────────────────────────────────────────────── */
+let micStream   = null;
+let micAudioCtx = null;
+let micRafId    = null;
+
+async function startMicMeter(btn) {
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    console.warn('[MicMeter] getUserMedia failed:', e);
+    return;
+  }
+  // Recording may have already stopped while we awaited permission
+  if (!isRecording) { micStream.getTracks().forEach(t => t.stop()); micStream = null; return; }
+
+  const Ctx = window.AudioContext || window['webkitAudioContext'];
+  micAudioCtx = new Ctx();
+  const source   = micAudioCtx.createMediaStreamSource(micStream);
+  const analyser = micAudioCtx.createAnalyser();
+  analyser.fftSize = 512;
+  source.connect(analyser);
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  let smoothed = 0;
+
+  const tick = () => {
+    analyser.getByteTimeDomainData(data);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+      const v = (data[i] - 128) / 128;   // −1 … 1
+      sum += v * v;
+    }
+    const rms   = Math.sqrt(sum / data.length);
+    const level = Math.min(1, rms * 3.2);          // amplify for visibility
+    smoothed += (level - smoothed) * 0.35;         // ease jitter, keep it snappy
+    btn.style.setProperty('--mic-level', smoothed.toFixed(3));
+    micRafId = requestAnimationFrame(tick);
+  };
+  tick();
+}
+
+function stopMicMeter() {
+  if (micRafId)    { cancelAnimationFrame(micRafId); micRafId = null; }
+  if (micStream)   { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  if (micAudioCtx) { micAudioCtx.close().catch(() => {}); micAudioCtx = null; }
+  activeRec.btn.style.setProperty('--mic-level', '0');
 }
 
 /* ── Handle Transcription ──────────────────────────────────────
@@ -402,7 +471,7 @@ function renderDiff(charResults) {
 }
 
 /* ── Helpers ───────────────────────────────────────────────── */
-function showStatus(message) { statusEl.textContent = message; }
+function showStatus(message, target = statusEl) { target.textContent = message; }
 
 function resetUI() {
   annotationGeneration++;   // drop any in-flight translation results
@@ -1186,4 +1255,173 @@ translateInputBtn.addEventListener('click', async () => {
   const fromLang = lang === 'pt-BR' ? 'pt-BR' : 'en';
   await autoTranslateInput(val, fromLang);
   // State (re-enable / hide) is handled entirely inside autoTranslateInput
+});
+
+
+/* ============================================================
+   Mode Tabs  —  Practice  ⇄  Flashcards
+   ============================================================ */
+const tabButtons   = document.querySelectorAll('.tab');
+const viewPractice = document.getElementById('view-practice');
+const viewFlash    = document.getElementById('view-flashcards');
+
+function switchView(view) {
+  // Stop any active recording / audio before leaving the current view
+  if (isRecording) stopRecording();
+  stopCurrentAudio();
+
+  tabButtons.forEach(btn => {
+    const on = btn.dataset.view === view;
+    btn.classList.toggle('tab--active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  viewPractice.hidden = view !== 'practice';
+  viewFlash.hidden    = view !== 'flashcards';
+
+  if (view === 'flashcards' && !fcInitialized) fcInit();
+}
+
+tabButtons.forEach(btn =>
+  btn.addEventListener('click', () => switchView(btn.dataset.view))
+);
+
+
+/* ============================================================
+   Flashcards  —  see a character, pronounce it
+   ============================================================
+   Decks come from vocab.js (FLASHCARD_DECKS): revisão prova 1
+   and prova 2.  Speech recognition is reused via startRecording
+   with a flashcard-specific result handler.
+   ============================================================ */
+const fcDeckTabs    = document.querySelectorAll('.fc-deck-tab');
+const fcCounter     = document.getElementById('fcCounter');
+const fcShuffleBtn  = document.getElementById('fcShuffleBtn');
+const fcHanzi       = document.getElementById('fcHanzi');
+const fcListenBtn   = document.getElementById('fcListenBtn');
+const fcAnswer      = document.getElementById('fcAnswer');
+const fcPinyin      = document.getElementById('fcPinyin');
+const fcMeaning     = document.getElementById('fcMeaning');
+const fcRevealBtn   = document.getElementById('fcRevealBtn');
+const fcRecordBtn   = document.getElementById('fcRecordBtn');
+const fcRecordLabel = document.getElementById('fcRecordLabel');
+const fcStatus      = document.getElementById('fcStatus');
+const fcResult      = document.getElementById('fcResult');
+const fcVerdict     = document.getElementById('fcVerdict');
+const fcYouSaid     = document.getElementById('fcYouSaid');
+const fcPrevBtn     = document.getElementById('fcPrevBtn');
+const fcNextBtn     = document.getElementById('fcNextBtn');
+
+const flashcardRec = {
+  btn:      fcRecordBtn,
+  label:    fcRecordLabel,
+  statusEl: fcStatus,
+  onResult: handleFlashcardResult,
+};
+
+let fcInitialized = false;
+let fcDeckKey     = 'prova1';
+let fcOrder       = [];   // indices into the active deck (optionally shuffled)
+let fcPos         = 0;
+let fcShuffled    = false;
+
+const fcDeck = () => FLASHCARD_DECKS[fcDeckKey];
+const fcCurrentCard = () => fcDeck()[fcOrder[fcPos]];
+
+/* Build the play order — sequential, or Fisher–Yates shuffled */
+function fcBuildOrder() {
+  fcOrder = fcDeck().map((_, i) => i);
+  if (fcShuffled) {
+    for (let i = fcOrder.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [fcOrder[i], fcOrder[j]] = [fcOrder[j], fcOrder[i]];
+    }
+  }
+  fcPos = 0;
+}
+
+function fcInit() {
+  fcInitialized = true;
+  fcLoadDeck('prova1');
+}
+
+function fcLoadDeck(key) {
+  fcDeckKey = key;
+  fcDeckTabs.forEach(tab => {
+    const on = tab.dataset.deck === key;
+    tab.classList.toggle('fc-deck-tab--active', on);
+    tab.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+  fcBuildOrder();
+  fcRender();
+}
+
+function fcRender() {
+  if (isRecording) stopRecording();
+  stopCurrentAudio();
+
+  const card = fcCurrentCard();
+  fcHanzi.textContent   = card.hanzi;
+  fcPinyin.textContent  = card.pinyin;
+  fcMeaning.textContent = card.pt;
+
+  fcAnswer.hidden       = true;
+  fcResult.hidden       = true;
+  fcVerdict.textContent = '';
+  fcYouSaid.textContent = '';
+  showStatus('', fcStatus);
+  fcCounter.textContent = `${fcPos + 1} / ${fcOrder.length}`;
+}
+
+function fcReveal() { fcAnswer.hidden = false; }
+
+function fcNext() { fcPos = (fcPos + 1) % fcOrder.length; fcRender(); }
+function fcPrev() { fcPos = (fcPos - 1 + fcOrder.length) % fcOrder.length; fcRender(); }
+
+/* Compare what the user said to the current card's characters */
+function handleFlashcardResult(transcript) {
+  showStatus('', fcStatus);
+  if (!transcript) {
+    showStatus('No speech detected. Please try again.', fcStatus);
+    return;
+  }
+
+  const card = fcCurrentCard();
+  const { score } = compareChars(card.hanzi, transcript);
+  const ok = score >= 100;
+
+  fcResult.hidden       = false;
+  fcVerdict.textContent = ok ? '✓ 对了 · Correct!' : `✗ 再试一次 · ${score}%`;
+  fcVerdict.classList.toggle('fc-verdict--good', ok);
+  fcVerdict.classList.toggle('fc-verdict--bad', !ok);
+
+  const lib  = getPinyinLib();
+  const said = lib
+    ? `${transcript} · ${lib.pinyin(transcript, { separator: ' ' })}`
+    : transcript;
+  fcYouSaid.textContent = 'You said: ' + said;
+
+  fcReveal();   // reveal pinyin + meaning after an attempt
+}
+
+/* ── Wire up flashcard controls ────────────────────────────── */
+fcDeckTabs.forEach(tab =>
+  tab.addEventListener('click', () => fcLoadDeck(tab.dataset.deck))
+);
+
+fcShuffleBtn.addEventListener('click', () => {
+  fcShuffled = !fcShuffled;
+  fcShuffleBtn.setAttribute('aria-pressed', String(fcShuffled));
+  fcShuffleBtn.classList.toggle('fc-shuffle--on', fcShuffled);
+  fcBuildOrder();
+  fcRender();
+});
+
+fcRevealBtn.addEventListener('click', fcReveal);
+fcListenBtn.addEventListener('click', () => speak(fcCurrentCard().hanzi, fcListenBtn));
+fcNextBtn.addEventListener('click', fcNext);
+fcPrevBtn.addEventListener('click', fcPrev);
+
+fcRecordBtn.addEventListener('click', () => {
+  if (isRecording) stopRecording();
+  else             startRecording(flashcardRec);
 });

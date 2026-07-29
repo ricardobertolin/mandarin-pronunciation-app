@@ -30,7 +30,22 @@
       <p class="header__en">Mandarin Pronunciation Practice</p>
     </header>
 
+    <!-- ── Mode tabs ────────────────────────────────────────── -->
+    <nav class="tabs" role="tablist" aria-label="Practice mode">
+      <button class="tab tab--active" id="tabPractice"
+              role="tab" aria-selected="true" data-view="practice">
+        🎤 Practice
+      </button>
+      <button class="tab" id="tabFlashcards"
+              role="tab" aria-selected="false" data-view="flashcards">
+        🀄 Flashcards
+      </button>
+    </nav>
+
     <main class="main">
+
+     <!-- ══ VIEW: PRACTICE ═══════════════════════════════════ -->
+     <div id="view-practice" class="view">
 
       <!-- ── Target phrase input ──────────────────────────── -->
       <section class="card" aria-labelledby="target-label">
@@ -153,15 +168,76 @@
         <button class="btn-secondary" id="tryAgainBtn">Try Again</button>
       </section>
 
+     </div><!-- /view-practice -->
+
+     <!-- ══ VIEW: FLASHCARDS ═════════════════════════════════ -->
+     <div id="view-flashcards" class="view" hidden>
+
+      <!-- ── Deck selector ────────────────────────────────── -->
+      <section class="card fc-deck-select">
+        <div class="fc-deck-tabs" role="tablist" aria-label="Deck">
+          <button class="fc-deck-tab fc-deck-tab--active" data-deck="prova1"
+                  role="tab" aria-selected="true">Revisão Prova 1</button>
+          <button class="fc-deck-tab" data-deck="prova2"
+                  role="tab" aria-selected="false">Revisão Prova 2</button>
+        </div>
+        <div class="fc-controls">
+          <span class="fc-counter" id="fcCounter">0 / 0</span>
+          <button class="fc-shuffle" id="fcShuffleBtn"
+                  aria-pressed="false">🔀 Shuffle</button>
+        </div>
+      </section>
+
+      <!-- ── Flashcard ────────────────────────────────────── -->
+      <section class="card fc-card">
+        <div class="fc-hanzi" id="fcHanzi" lang="zh-CN"></div>
+        <button class="btn-pronounce fc-listen" id="fcListenBtn"
+                aria-label="Listen to pronunciation">
+          &#x1F50A;&nbsp;Listen
+        </button>
+
+        <div class="fc-answer" id="fcAnswer" hidden>
+          <div class="fc-pinyin" id="fcPinyin" lang="zh-Latn"></div>
+          <div class="fc-meaning" id="fcMeaning" lang="pt-BR"></div>
+        </div>
+
+        <button class="btn-secondary fc-reveal" id="fcRevealBtn">Reveal answer</button>
+      </section>
+
+      <!-- ── Record + verdict ─────────────────────────────── -->
+      <section class="record-section">
+        <button id="fcRecordBtn" class="record-btn"
+                aria-label="Start recording" aria-pressed="false">
+          <span class="record-btn__ring" aria-hidden="true"></span>
+          <span class="record-btn__icon" aria-hidden="true">🎤</span>
+          <span class="record-btn__label" id="fcRecordLabel">Tap to Speak</span>
+        </button>
+        <p class="status" id="fcStatus" aria-live="polite" aria-atomic="true"></p>
+
+        <div class="fc-result" id="fcResult" hidden>
+          <div class="fc-verdict" id="fcVerdict"></div>
+          <div class="fc-yousaid" id="fcYouSaid" lang="zh-CN"></div>
+        </div>
+      </section>
+
+      <!-- ── Navigation ───────────────────────────────────── -->
+      <div class="fc-nav">
+        <button class="btn-secondary" id="fcPrevBtn">◀ Prev</button>
+        <button class="btn-secondary" id="fcNextBtn">Next ▶</button>
+      </div>
+
+     </div><!-- /view-flashcards -->
+
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v2.4.0 &nbsp;·&nbsp; Web Speech API</p>
+      <p>v2.5.0 &nbsp;·&nbsp; Web Speech API</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 
   </div><!-- /app -->
 
+  <script src="vocab.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

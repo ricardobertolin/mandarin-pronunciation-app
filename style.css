@@ -343,10 +343,23 @@ body {
   pointer-events: none;
 }
 
-/* Recording state applied via JS */
+/* Recording state applied via JS.
+   The extra box-shadows are a live "sound halo" whose spread + brightness
+   are driven by the --mic-level custom property (0–1), updated each frame
+   from the microphone. Two layers give a fuller, more visible response. */
 .record-btn--recording {
   background: #8b0000;
-  box-shadow: 0 4px 32px rgba(139, 0, 0, 0.65);
+  box-shadow:
+    0 4px 32px rgba(139, 0, 0, 0.65),
+    0 0 calc(20px + var(--mic-level, 0) * 40px) calc(4px + var(--mic-level, 0) * 10px) rgba(231, 76, 60, calc(0.35 + var(--mic-level, 0) * 0.45)),
+    0 0 0 calc(6px + var(--mic-level, 0) * 46px) rgba(231, 76, 60, calc(0.10 + var(--mic-level, 0) * 0.25));
+  transition: box-shadow 0.05s linear;
+}
+
+/* Mic icon swells with your voice */
+.record-btn--recording .record-btn__icon {
+  transform: scale(calc(1 + var(--mic-level, 0) * 0.55));
+  transition: transform 0.05s linear;
 }
 
 .record-btn--recording .record-btn__ring {
@@ -572,6 +585,186 @@ body {
 .footer__author {
   color: var(--color-text);
   font-weight: 600;
+}
+
+/* ── Mode tabs ─────────────────────────────────────────────── */
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.tab {
+  flex: 1;
+  padding: 12px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-input);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.tab:hover { color: var(--color-text); }
+
+.tab--active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+/* ── View container ────────────────────────────────────────── */
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Flashcards: deck selector ─────────────────────────────── */
+.fc-deck-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.fc-deck-tab {
+  flex: 1;
+  padding: 8px 6px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all var(--transition);
+}
+
+.fc-deck-tab--active {
+  background: var(--color-surface-alt);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.fc-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fc-counter {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.fc-shuffle {
+  padding: 5px 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all var(--transition);
+}
+
+.fc-shuffle--on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+/* ── Flashcards: the card ──────────────────────────────────── */
+.fc-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 32px 20px;
+}
+
+.fc-hanzi {
+  font-family: var(--font-zh);
+  font-size: clamp(3.5rem, 22vw, 6rem);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.1;
+  word-break: break-all;
+}
+
+.fc-listen { margin-top: 0; }
+
+.fc-answer {
+  animation: fade-in 0.2s ease;
+}
+
+.fc-pinyin {
+  font-family: var(--font-ui);
+  font-size: 1.3rem;
+  color: #7eb8d4;      /* soft blue — matches practice pinyin */
+  letter-spacing: 0.03em;
+}
+
+.fc-meaning {
+  font-size: 1rem;
+  font-style: italic;
+  color: #9dbf8e;      /* soft green — matches practice PT */
+  margin-top: 4px;
+}
+
+.fc-reveal {
+  width: auto;
+  padding: 8px 20px;
+  margin-top: 6px;
+  text-transform: none;
+  font-size: 0.8rem;
+}
+
+/* ── Flashcards: verdict ───────────────────────────────────── */
+.fc-result {
+  text-align: center;
+  animation: fade-in 0.3s ease;
+}
+
+.fc-verdict {
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.fc-verdict--good { color: var(--color-correct); }
+.fc-verdict--bad  { color: var(--color-wrong); }
+
+.fc-yousaid {
+  margin-top: 6px;
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+}
+
+/* ── Flashcards: navigation ────────────────────────────────── */
+.fc-nav {
+  display: flex;
+  gap: 12px;
+}
+
+.fc-nav .btn-secondary {
+  flex: 1;
+  text-transform: none;
 }
 
 /* ── Utility ────────────────────────────────────────────────── */
