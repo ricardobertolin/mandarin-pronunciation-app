@@ -154,7 +154,16 @@ let micStream   = null;
 let micAudioCtx = null;
 let micRafId    = null;
 
+/* Phones/tablets typically allow only ONE microphone consumer at a time,
+   so a second stream for the meter would starve the Speech API and it would
+   hang on "Listening…". Detect touch devices and skip the meter there — the
+   CSS pulsing ring still signals that recording is active. */
+const METER_DISABLED =
+  (navigator.maxTouchPoints || 0) > 0 ||
+  (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+
 async function startMicMeter(btn) {
+  if (METER_DISABLED) return;
   if (!navigator.mediaDevices?.getUserMedia) return;
   try {
     // Raw tap: disable AGC/noise/echo processing so this passive meter
