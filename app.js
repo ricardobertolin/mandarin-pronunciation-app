@@ -287,6 +287,17 @@ async function getPinyin(chineseText) {
   return null;
 }
 
+/* Normalised, toneful pinyin used to compare pronunciations.
+   e.g. 他 and 她 → "tā"  (homophones match; wrong tone does not).
+   Returns null when the pinyin library isn't loaded. */
+function pinyinKey(text) {
+  const lib = getPinyinLib();
+  if (!lib) return null;
+  return lib.pinyin(text, { separator: ' ', toneType: 'symbol' })
+            .toLowerCase()
+            .replace(/\s+/g, '');
+}
+
 let annotationGeneration = 0;   // invalidates stale in-flight fetches
 
 async function showTranscriptAnnotations(chineseText) {
@@ -412,6 +423,22 @@ function normalizeChar(ch) {
   return HANZI_TO_DIGIT[lower] ?? lower;
 }
 
+/* Comparison key for a single character. Since this app grades
+   *pronunciation*, two hanzi that sound the same (e.g. 他/她 → "tā")
+   share a key and count as a match. Tone marks are kept, so a wrong
+   tone still differs. Digits keep their numeric equivalence, and when
+   the pinyin library isn't loaded this falls back to the plain char. */
+function charKey(ch) {
+  const base = normalizeChar(ch);
+  if (/^[0-9]$/.test(base)) return base;              // 五 ↔ 5 etc.
+  const lib = getPinyinLib();
+  if (lib && /[一-鿿㐀-䶿]/.test(ch)) {
+    const py = lib.pinyin(ch, { toneType: 'symbol' });
+    if (py && py.trim()) return py.toLowerCase().trim();
+  }
+  return base;
+}
+
 /* ── Character Comparison ──────────────────────────────────────
    Aligns target and transcript with an LCS (longest common
    subsequence) so a single inserted or dropped character no
@@ -425,8 +452,8 @@ const IGNORED_CHAR = /[\s\p{P}\p{S}]/u;
 function compareChars(target, transcript) {
   const tChars = Array.from(target).filter(ch => !IGNORED_CHAR.test(ch));
   const sChars = Array.from(transcript).filter(ch => !IGNORED_CHAR.test(ch));
-  const tNorm  = tChars.map(normalizeChar);
-  const sNorm  = sChars.map(normalizeChar);
+  const tNorm  = tChars.map(charKey);
+  const sNorm  = sChars.map(charKey);
   const m = tChars.length;
   const n = sChars.length;
 
@@ -1422,14 +1449,23 @@ function handleFlashcardResult(transcript, alternatives = [transcript]) {
   }
 
   const card = fcCurrentCard();
+
+  // This is a *pronunciation* drill, so judge by pinyin, not by the written
+  // character. Homophones like 他/她 (both "tā") must count as correct.
+  // Tone marks are kept, so a wrong tone is still wrong.
+  const targetKey = pinyinKey(card.hanzi);
+
   let transcript_ = cands[0];
   let score = -1;
+  let matched = false;
   for (const c of cands) {
-    const s = compareChars(card.hanzi, c).score;
+    if (targetKey && pinyinKey(c) === targetKey) { transcript_ = c; matched = true; break; }
+    const s = compareChars(card.hanzi, c).score;   // fallback when pinyin lib is offline
     if (s > score) { score = s; transcript_ = c; }
   }
   transcript = transcript_;
-  const ok = score >= 100;
+  if (matched) score = 100;
+  const ok = matched || score >= 100;
 
   fcResult.hidden       = false;
   fcVerdict.textContent = ok ? '✓ 对了 · Correct!' : `✗ 再试一次 · ${score}%`;
