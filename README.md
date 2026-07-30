@@ -1,1 +1,1 @@
-https://ricardobertolin.github.io/mandarin-pronunciation-app/
+https://ricardobertolin.github.io/mandarin_pronunciation_app/
