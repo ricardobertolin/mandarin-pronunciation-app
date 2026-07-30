@@ -86,7 +86,9 @@ function startRecording(ctx) {
   recognition = new SpeechRecognition();
   recognition.lang            = 'zh-CN';
   recognition.interimResults  = false;
-  recognition.maxAlternatives = 1;
+  // Ask for several guesses: short single syllables (你/我/去…) are often
+  // mis-heard as a homophone on the first guess, so we check them all.
+  recognition.maxAlternatives = 6;
   recognition.continuous      = false;
 
   recognition.onstart = () => {
@@ -100,8 +102,11 @@ function startRecording(ctx) {
   };
 
   recognition.onresult = (event) => {
-    const transcript = event.results[0][0].transcript.trim();
-    activeRec.onResult(transcript);
+    const result = event.results[0];
+    const alternatives = Array.from(result)
+      .map(a => a.transcript.trim())
+      .filter(Boolean);
+    activeRec.onResult(alternatives[0] || '', alternatives);
   };
 
   recognition.onend  = () => setIdleState();
@@ -152,7 +157,11 @@ let micRafId    = null;
 async function startMicMeter(btn) {
   if (!navigator.mediaDevices?.getUserMedia) return;
   try {
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Raw tap: disable AGC/noise/echo processing so this passive meter
+    // stream doesn't fight the Speech API's own capture.
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    });
   } catch (e) {
     console.warn('[MicMeter] getUserMedia failed:', e);
     return;
@@ -196,12 +205,26 @@ function stopMicMeter() {
 /* ── Handle Transcription ──────────────────────────────────────
    Called with the final zh-CN transcript from the Speech API.
    ──────────────────────────────────────────────────────────── */
-function handleTranscript(transcript) {
+function handleTranscript(transcript, alternatives = [transcript]) {
   showStatus('');
 
   if (!transcript) {
     showStatus('No speech was detected. Please try again.');
     return;
+  }
+
+  const target = targetInput.value.trim();
+
+  // With a target set, keep whichever guess best matches it so a correct
+  // attempt isn't penalised for a homophone landing as the top guess.
+  if (target) {
+    const cands = (alternatives.length ? alternatives : [transcript]).filter(Boolean);
+    let best = cands[0], bestScore = -1;
+    for (const c of cands) {
+      const s = compareChars(target, c).score;
+      if (s > bestScore) { bestScore = s; best = c; }
+    }
+    transcript = best;
   }
 
   transcribedEl.textContent = transcript;
@@ -210,7 +233,6 @@ function handleTranscript(transcript) {
   // Show pinyin + English translation below the Chinese characters
   showTranscriptAnnotations(transcript);
 
-  const target = targetInput.value.trim();
   if (target) {
     const { charResults, score } = compareChars(target, transcript);
 
@@ -1377,16 +1399,27 @@ function fcReveal() { fcAnswer.hidden = false; }
 function fcNext() { fcPos = (fcPos + 1) % fcOrder.length; fcRender(); }
 function fcPrev() { fcPos = (fcPos - 1 + fcOrder.length) % fcOrder.length; fcRender(); }
 
-/* Compare what the user said to the current card's characters */
-function handleFlashcardResult(transcript) {
+/* Compare what the user said to the current card's characters.
+   We receive every guess the recognizer offered and keep the one that
+   best matches the card — so a correct pronunciation isn't rejected just
+   because the top guess was a homophone. */
+function handleFlashcardResult(transcript, alternatives = [transcript]) {
   showStatus('', fcStatus);
-  if (!transcript) {
+
+  const cands = (alternatives.length ? alternatives : [transcript]).filter(Boolean);
+  if (!cands.length) {
     showStatus('No speech detected. Please try again.', fcStatus);
     return;
   }
 
   const card = fcCurrentCard();
-  const { score } = compareChars(card.hanzi, transcript);
+  let transcript_ = cands[0];
+  let score = -1;
+  for (const c of cands) {
+    const s = compareChars(card.hanzi, c).score;
+    if (s > score) { score = s; transcript_ = c; }
+  }
+  transcript = transcript_;
   const ok = score >= 100;
 
   fcResult.hidden       = false;

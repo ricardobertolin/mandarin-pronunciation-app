@@ -595,8 +595,16 @@ body {
 }
 
 .tab {
-  flex: 1;
-  padding: 12px 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 46px;
+  padding: 0 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-input);
   background: var(--color-surface);
@@ -604,7 +612,9 @@ body {
   font-family: var(--font-ui);
   font-size: 0.85rem;
   font-weight: 600;
+  line-height: 1;
   letter-spacing: 0.03em;
+  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -634,7 +644,10 @@ body {
 }
 
 .fc-deck-tab {
-  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 0;
   padding: 8px 6px;
   border: 1.5px solid var(--color-border);
   border-radius: 99px;
@@ -643,6 +656,7 @@ body {
   font-family: var(--font-ui);
   font-size: 0.8rem;
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
@@ -668,6 +682,8 @@ body {
 }
 
 .fc-shuffle {
+  -webkit-appearance: none;
+  appearance: none;
   padding: 5px 14px;
   border: 1.5px solid var(--color-border);
   border-radius: 99px;
@@ -765,6 +781,30 @@ body {
 .fc-nav .btn-secondary {
   flex: 1;
   text-transform: none;
+}
+
+/* ── Mobile: compact the flashcard view to fit one screen ──── */
+@media (max-width: 600px) {
+  .app     { padding: 0 14px 12px; }
+  .header  { padding: 16px 0 10px; }
+  .header__zh { font-size: 2.2rem; }
+  .header__en { font-size: 0.75rem; }
+  .main    { gap: 14px; }
+  .view    { gap: 14px; }
+  .footer  { padding: 12px 0 6px; }
+
+  /* Flashcards fit the viewport without scrolling */
+  #view-flashcards .fc-deck-select   { padding: 12px 14px; }
+  #view-flashcards .fc-deck-tabs     { margin-bottom: 10px; }
+  #view-flashcards .fc-card          { padding: 16px; gap: 6px; }
+  #view-flashcards .fc-hanzi         { font-size: clamp(2.8rem, 20vw, 4.5rem); }
+  #view-flashcards .fc-pinyin        { font-size: 1.15rem; }
+  #view-flashcards .record-section   { gap: 8px; padding: 0; }
+  #view-flashcards .record-btn       { width: 96px; height: 96px; }
+  #view-flashcards .record-btn__icon { font-size: 1.7rem; }
+  #view-flashcards .record-btn__label{ font-size: 0.65rem; }
+  #view-flashcards .fc-reveal        { margin-top: 2px; padding: 6px 18px; }
+  #view-flashcards .fc-nav .btn-secondary { padding: 10px; }
 }
 
 /* ── Utility ────────────────────────────────────────────────── */
