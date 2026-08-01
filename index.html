@@ -100,8 +100,10 @@
           <!-- Pulsing ring shown while recording (toggled via CSS class) -->
           <span class="record-btn__ring" aria-hidden="true"></span>
           <span class="record-btn__icon" aria-hidden="true">🎤</span>
-          <span class="record-btn__label" id="recordLabel">Tap to Speak</span>
+          <span class="record-btn__label" id="recordLabel">Tap or Hold</span>
         </button>
+
+        <p class="record-hint">Tap for a quick phrase · hold to speak as long as you want</p>
 
         <!-- Live status messages read by screen readers -->
         <p class="status" id="status" aria-live="polite" aria-atomic="true"></p>
@@ -177,9 +179,9 @@
       <section class="card fc-deck-select">
         <div class="fc-deck-tabs" role="tablist" aria-label="Deck">
           <button class="fc-deck-tab fc-deck-tab--active" data-deck="prova1"
-                  role="tab" aria-selected="true">Revisão Prova 1</button>
+                  role="tab" aria-selected="true">Exam 1 Review</button>
           <button class="fc-deck-tab" data-deck="prova2"
-                  role="tab" aria-selected="false">Revisão Prova 2</button>
+                  role="tab" aria-selected="false">Exam 2 Review</button>
         </div>
         <div class="fc-controls">
           <span class="fc-counter" id="fcCounter">0 / 0</span>
@@ -198,7 +200,12 @@
 
         <div class="fc-answer" id="fcAnswer" hidden>
           <div class="fc-pinyin" id="fcPinyin" lang="zh-Latn"></div>
-          <div class="fc-meaning" id="fcMeaning" lang="pt-BR"></div>
+          <!-- Meaning shown in both Portuguese and English -->
+          <div class="fc-meaning">
+            <span class="fc-meaning__pt" id="fcMeaningPt" lang="pt-BR"></span>
+            <span class="fc-meaning__sep" aria-hidden="true">·</span>
+            <span class="fc-meaning__en" id="fcMeaningEn" lang="en"></span>
+          </div>
         </div>
 
         <button class="btn-secondary fc-reveal" id="fcRevealBtn">Reveal answer</button>
@@ -210,8 +217,9 @@
                 aria-label="Start recording" aria-pressed="false">
           <span class="record-btn__ring" aria-hidden="true"></span>
           <span class="record-btn__icon" aria-hidden="true">🎤</span>
-          <span class="record-btn__label" id="fcRecordLabel">Tap to Speak</span>
+          <span class="record-btn__label" id="fcRecordLabel">Tap or Hold</span>
         </button>
+        <p class="record-hint">Tap · or hold to speak a longer answer</p>
         <p class="status" id="fcStatus" aria-live="polite" aria-atomic="true"></p>
 
         <div class="fc-result" id="fcResult" hidden>
@@ -231,7 +239,7 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v2.5.4 &nbsp;·&nbsp; Web Speech API</p>
+      <p>v2.6.0 &nbsp;·&nbsp; Web Speech API</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 

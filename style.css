@@ -379,6 +379,16 @@ body {
   text-align: center;
 }
 
+/* Explains the tap / hold-to-talk gesture under the record button */
+.record-hint {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  opacity: 0.75;
+  text-align: center;
+  max-width: 34ch;
+  margin-top: -8px;   /* tuck it under the button, above the status line */
+}
+
 /* ── Results card ──────────────────────────────────────────── */
 .results {
   animation: fade-in 0.3s ease;
@@ -738,10 +748,28 @@ body {
 
 .fc-meaning {
   font-size: 1rem;
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+}
+
+.fc-meaning__pt {
   font-style: italic;
   color: #9dbf8e;      /* soft green — matches practice PT */
-  margin-top: 4px;
 }
+
+.fc-meaning__sep { color: var(--color-text-muted); opacity: 0.6; }
+
+.fc-meaning__en {
+  font-style: italic;
+  color: var(--color-text-muted);   /* matches the practice-view English line */
+}
+
+/* Card with no English gloss: drop the dangling separator */
+.fc-meaning:has(.fc-meaning__en:empty) .fc-meaning__sep { display: none; }
 
 .fc-reveal {
   width: auto;
@@ -803,6 +831,7 @@ body {
   #view-flashcards .record-btn       { width: 96px; height: 96px; }
   #view-flashcards .record-btn__icon { font-size: 1.7rem; }
   #view-flashcards .record-btn__label{ font-size: 0.65rem; }
+  #view-flashcards .record-hint      { font-size: 0.68rem; margin-top: -2px; }
   #view-flashcards .fc-reveal        { margin-top: 2px; padding: 6px 18px; }
   #view-flashcards .fc-nav .btn-secondary { padding: 10px; }
 }

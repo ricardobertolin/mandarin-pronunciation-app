@@ -63,13 +63,31 @@ let stopping     = false;   // stop() sent, waiting for the engine's onend
 
 /* Auto-stop bookkeeping: the engine sometimes keeps the session open long
    after the speaker is done, so we close it ourselves once the audio has
-   been quiet for a moment. */
+   been quiet for a moment.  (Hold-to-talk switches all of this off — there
+   the user's finger decides when the session ends.) */
 const SILENCE_MS  = 1400;   // quiet time after speech before we stop
 const MAX_REC_MS  = 15000;  // hard cap so a stuck session can't run forever
+const MAX_HOLD_MS = 120000; // same, but generous while the button is held
 let silenceTimer  = null;
 let maxRecTimer   = null;
 let lastInterim   = '';     // best interim guess, used if stop() yields nothing
 let resultSent    = false;  // a transcript was already handed to the UI
+let speechStarted = false;  // the engine reported the start of an utterance
+
+/* ── Hold-to-talk ──────────────────────────────────────────────
+   A quick tap works exactly as before: the session auto-closes on
+   silence.  Press and *hold* the button and nothing stops the
+   session until the button is released, so long phrases (with
+   pauses for breath) come through in one piece.                 */
+const HOLD_MS   = 350;      // press longer than this ⇒ hold-to-talk
+const IDLE_LABEL = 'Tap or Hold';
+let holdMode    = false;    // current session ends only on release
+let pressActive = false;    // pointer / key currently held on a record button
+let pressStart  = 0;
+/* Hold sessions can produce several final chunks (the engine finalises a
+   phrase whenever the speaker pauses); we stitch them back together. */
+let finalChunks   = [];
+let lastFinalAlts = [];
 
 function clearRecTimers() {
   clearTimeout(silenceTimer); silenceTimer = null;
@@ -77,10 +95,30 @@ function clearRecTimers() {
 }
 
 /* Restart the quiet-countdown; when it expires we stop as if the user had
-   tapped the button again. */
+   tapped the button again.  No-op while the button is held. */
 function armSilenceTimer() {
+  if (holdMode) return;
   clearTimeout(silenceTimer);
   silenceTimer = setTimeout(() => { if (isRecording) stopRecording(); }, SILENCE_MS);
+}
+
+/* Everything heard this session that hasn't been handed to the UI yet:
+   the finalised chunks plus whatever the engine is still chewing on.
+   Returns the alternatives of the *last* chunk, each prefixed with the
+   earlier chunks, so homophone matching still has something to work with. */
+function collectPending() {
+  const joined = (s) => (finalChunks.join('') + s).trim();
+
+  if (lastInterim) {
+    const combined = joined(lastInterim);
+    return combined ? [combined] : [];
+  }
+  if (finalChunks.length) {
+    const head = finalChunks.slice(0, -1).join('');
+    const tail = lastFinalAlts.length ? lastFinalAlts : [finalChunks[finalChunks.length - 1]];
+    return tail.map(a => (head + a).trim()).filter(Boolean);
+  }
+  return [];
 }
 
 /* Which UI initiated the current recording — the record button, its label,
@@ -94,15 +132,79 @@ const practiceRec = {
 };
 let activeRec = practiceRec;
 
-recordBtn.addEventListener('click', () => {
-  if (isRecording) stopRecording();
-  else             startRecording(practiceRec);
-});
+/* ── Press handling (tap-to-toggle *and* hold-to-talk) ─────────
+   A press always starts recording immediately and optimistically
+   assumes it is a hold, so no auto-stop can cut the speaker off.
+   Releasing within HOLD_MS downgrades the session to the classic
+   tap behaviour; releasing later ends it.                        */
+function beginPress(ctx, ev) {
+  if (ev) ev.preventDefault();
+  if (pressActive) return;
+
+  // Pressing again while a session is running means "stop" (tap-to-toggle).
+  if (isRecording || stopping) { stopRecording(); return; }
+
+  pressActive = true;
+  pressStart  = Date.now();
+  holdMode    = true;      // a quick release downgrades this below
+  holdResumes = 0;
+  startRecording(ctx);
+}
+
+function endPress() {
+  if (!pressActive) return;
+  pressActive = false;
+
+  if (Date.now() - pressStart >= HOLD_MS) {
+    stopRecording();       // held → release ends the session
+    return;
+  }
+
+  // Quick tap → behave like before: keep listening, close on silence.
+  holdMode = false;
+  if (!isRecording) return;
+  clearTimeout(maxRecTimer);
+  maxRecTimer = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_REC_MS);
+  activeRec.label.textContent = 'Listening…';
+  showStatus('Speak now in Mandarin…', activeRec.statusEl);
+  if (speechStarted) armSilenceTimer();
+}
+
+/* Wire a record button for pointer (mouse / touch / pen) and keyboard use. */
+function wireRecordButton(ctx) {
+  const btn = ctx.btn;
+
+  btn.addEventListener('pointerdown', (ev) => {
+    if (ev.button !== undefined && ev.button !== 0) return;   // main button only
+    try { btn.setPointerCapture(ev.pointerId); } catch (e) { /* not critical */ }
+    beginPress(ctx, ev);
+    btn.focus({ preventScroll: true });
+  });
+
+  btn.addEventListener('pointerup',     endPress);
+  btn.addEventListener('pointercancel', endPress);
+  // Long-press on touch would otherwise pop up the selection callout / menu.
+  btn.addEventListener('contextmenu', ev => ev.preventDefault());
+
+  btn.addEventListener('keydown', (ev) => {
+    if (ev.key !== ' ' && ev.key !== 'Enter') return;
+    if (ev.repeat) { ev.preventDefault(); return; }
+    beginPress(ctx, ev);
+  });
+  btn.addEventListener('keyup', (ev) => {
+    if (ev.key !== ' ' && ev.key !== 'Enter') return;
+    endPress();
+  });
+}
+
+wireRecordButton(practiceRec);
 
 tryAgainBtn.addEventListener('click', resetUI);
 
-/* ── Start / Stop Recording ────────────────────────────────── */
-function startRecording(ctx) {
+/* ── Start / Stop Recording ──────────────────────────────────
+   `resume` restarts the engine mid-hold (see resumeHold) and keeps
+   everything heard so far instead of starting a fresh transcript. */
+function startRecording(ctx, resume = false) {
   if (!SpeechRecognition) return;
   if (isRecording || stopping) return;   // a session is still winding down
   activeRec = ctx;
@@ -115,27 +217,45 @@ function startRecording(ctx) {
   // Ask for several guesses: short single syllables (你/我/去…) are often
   // mis-heard as a homophone on the first guess, so we check them all.
   recognition.maxAlternatives = 6;
-  recognition.continuous      = false;
+  // While the button is held the speaker may pause mid-phrase; continuous
+  // mode keeps the session alive across those pauses instead of finalising.
+  recognition.continuous      = holdMode;
 
-  lastInterim = '';
-  resultSent  = false;
+  if (resume) {
+    // Carry an unfinished phrase over into the new session.
+    if (lastInterim) { finalChunks.push(lastInterim); lastFinalAlts = [lastInterim]; }
+    lastInterim = '';
+  } else {
+    lastInterim   = '';
+    resultSent    = false;
+    finalChunks   = [];
+    lastFinalAlts = [];
+  }
+  speechStarted = false;
 
   recognition.onstart = () => {
     isRecording = true;
-    maxRecTimer = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_REC_MS);
+    // The hard cap outranks a stuck finger, so drop the press first —
+    // otherwise onend would just resume the hold.
+    maxRecTimer = setTimeout(() => { if (isRecording) cancelRecording(); },
+                             holdMode ? MAX_HOLD_MS : MAX_REC_MS);
+    // The button may have been released while the engine was starting up.
+    if (holdMode && !pressActive) { stopRecording(); return; }
     activeRec.btn.classList.add('record-btn--recording');
     activeRec.btn.setAttribute('aria-pressed', 'true');
     activeRec.btn.setAttribute('aria-label', 'Stop recording');
-    activeRec.label.textContent = 'Listening…';
-    showStatus('Speak now in Mandarin…', activeRec.statusEl);
-    startMicMeter(activeRec.btn);
+    activeRec.label.textContent = holdMode ? 'Release to Stop' : 'Listening…';
+    showStatus(holdMode ? 'Keep holding and speak… release when done'
+                        : 'Speak now in Mandarin…', activeRec.statusEl);
+    if (!resume) startMicMeter(activeRec.btn);   // a resumed hold keeps its meter
   };
 
   // Speech started — from here on, a stretch of silence means "done talking".
-  recognition.onspeechstart = () => armSilenceTimer();
+  recognition.onspeechstart = () => { speechStarted = true; armSilenceTimer(); };
 
-  // The engine itself noticed the end of the utterance: close immediately.
-  recognition.onspeechend = () => { if (isRecording) stopRecording(); };
+  // The engine itself noticed the end of the utterance: close immediately —
+  // unless the button is still held, in which case the user isn't done.
+  recognition.onspeechend = () => { if (isRecording && !holdMode) stopRecording(); };
 
   recognition.onresult = (event) => {
     const result = event.results[event.results.length - 1];
@@ -144,8 +264,15 @@ function startRecording(ctx) {
       .filter(Boolean);
 
     if (result.isFinal) {
-      deliverResult(alternatives);
-      stopRecording();            // no reason to keep the mic open
+      if (holdMode) {
+        // Bank this chunk and keep listening until the button is released.
+        finalChunks.push(alternatives[0] || '');
+        lastFinalAlts = alternatives;
+        lastInterim   = '';
+      } else {
+        deliverResult(alternatives);
+        stopRecording();          // no reason to keep the mic open
+      }
     } else {
       lastInterim = alternatives[0] || lastInterim;
       armSilenceTimer();          // still talking — push the deadline back
@@ -153,16 +280,32 @@ function startRecording(ctx) {
   };
 
   recognition.onend = () => {
+    // Still holding the button? The engine closed on its own (a long pause,
+    // its own time limit…) — that's exactly what hold-to-talk must ignore.
+    if (pressActive && holdMode) { resumeHold(); return; }
+
     // stop() usually flushes a final result, but if it didn't, fall back to
-    // the last interim guess so the user still sees what was heard.
-    if (!resultSent && lastInterim) deliverResult([lastInterim]);
+    // what we banked so the user still sees what was heard.
+    if (!resultSent) {
+      const pending = collectPending();
+      if (pending.length) deliverResult(pending);
+    }
     setIdleState();
   };
 
   recognition.onerror = (event) => {
     console.warn('[Speech] Error:', event.error);
     const target = activeRec.statusEl;
-    if (!resultSent && lastInterim) deliverResult([lastInterim]);
+    const fatal = event.error === 'not-allowed' ||
+                  event.error === 'service-not-allowed' ||
+                  event.error === 'audio-capture';
+    // A recoverable hiccup while the button is held: let onend resume us.
+    if (pressActive && holdMode && !fatal) return;
+    if (!resultSent) {
+      const pending = collectPending();
+      if (pending.length) deliverResult(pending);
+    }
+    pressActive = false;
     setIdleState();
     const messages = {
       'no-speech':           'No speech detected. Please try again.',
@@ -188,22 +331,47 @@ function deliverResult(alternatives) {
   activeRec.onResult(alternatives[0] || '', alternatives);
 }
 
+/* The engine ended a session while the button is still held — start a new
+   one straight away, keeping the transcript we've built up. The mic meter
+   and the button's recording state stay as they are, so the restart is
+   invisible to the user. */
+const MAX_HOLD_RESUMES = 40;   // stop chasing an engine that won't stay up
+let holdResumes = 0;
+
+function resumeHold() {
+  clearRecTimers();
+  stopping    = false;
+  isRecording = false;
+  if (++holdResumes > MAX_HOLD_RESUMES) { pressActive = false; setIdleState(); return; }
+  startRecording(activeRec, true);
+}
+
+/* End the session for good — used when something other than the user's
+   finger closes it (view change, next card, hard cap), so a held button
+   can't resurrect it. */
+function cancelRecording() {
+  pressActive = false;
+  stopRecording();
+}
+
 function stopRecording() {
   if (stopping) return;         // stop() already requested; wait for onend
   stopping = true;
   clearRecTimers();
-  if (recognition) recognition.stop();
+  if (recognition) { try { recognition.stop(); } catch (e) { setIdleState(); } }
 }
 
 function setIdleState() {
   clearRecTimers();
   stopping    = false;
   isRecording = false;
+  holdMode    = false;
+  pressActive = false;
   stopMicMeter();
   activeRec.btn.classList.remove('record-btn--recording');
   activeRec.btn.setAttribute('aria-pressed', 'false');
   activeRec.btn.setAttribute('aria-label', 'Start recording');
-  activeRec.label.textContent = 'Tap to Speak';
+  activeRec.label.textContent = IDLE_LABEL;
 }
 
 /* ── Live microphone level meter ───────────────────────────────
@@ -1387,7 +1555,7 @@ const viewFlash    = document.getElementById('view-flashcards');
 
 function switchView(view) {
   // Stop any active recording / audio before leaving the current view
-  if (isRecording) stopRecording();
+  if (isRecording) cancelRecording();
   stopCurrentAudio();
 
   tabButtons.forEach(btn => {
@@ -1420,7 +1588,8 @@ const fcHanzi       = document.getElementById('fcHanzi');
 const fcListenBtn   = document.getElementById('fcListenBtn');
 const fcAnswer      = document.getElementById('fcAnswer');
 const fcPinyin      = document.getElementById('fcPinyin');
-const fcMeaning     = document.getElementById('fcMeaning');
+const fcMeaningPt   = document.getElementById('fcMeaningPt');
+const fcMeaningEn   = document.getElementById('fcMeaningEn');
 const fcRevealBtn   = document.getElementById('fcRevealBtn');
 const fcRecordBtn   = document.getElementById('fcRecordBtn');
 const fcRecordLabel = document.getElementById('fcRecordLabel');
@@ -1476,13 +1645,15 @@ function fcLoadDeck(key) {
 }
 
 function fcRender() {
-  if (isRecording) stopRecording();
+  if (isRecording) cancelRecording();
   stopCurrentAudio();
 
   const card = fcCurrentCard();
-  fcHanzi.textContent   = card.hanzi;
-  fcPinyin.textContent  = card.pinyin;
-  fcMeaning.textContent = card.pt;
+  fcHanzi.textContent     = card.hanzi;
+  fcPinyin.textContent    = card.pinyin;
+  // The answer gives the meaning in both languages: Portuguese and English.
+  fcMeaningPt.textContent = card.pt;
+  fcMeaningEn.textContent = card.en || '';
 
   fcAnswer.hidden       = true;
   fcResult.hidden       = true;
@@ -1561,7 +1732,4 @@ fcListenBtn.addEventListener('click', () => speak(fcCurrentCard().hanzi, fcListe
 fcNextBtn.addEventListener('click', fcNext);
 fcPrevBtn.addEventListener('click', fcPrev);
 
-fcRecordBtn.addEventListener('click', () => {
-  if (isRecording) stopRecording();
-  else             startRecording(flashcardRec);
-});
+wireRecordButton(flashcardRec);
