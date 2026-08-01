@@ -59,6 +59,29 @@ if (!SpeechRecognition) {
 
 let recognition = null;
 let isRecording  = false;
+let stopping     = false;   // stop() sent, waiting for the engine's onend
+
+/* Auto-stop bookkeeping: the engine sometimes keeps the session open long
+   after the speaker is done, so we close it ourselves once the audio has
+   been quiet for a moment. */
+const SILENCE_MS  = 1400;   // quiet time after speech before we stop
+const MAX_REC_MS  = 15000;  // hard cap so a stuck session can't run forever
+let silenceTimer  = null;
+let maxRecTimer   = null;
+let lastInterim   = '';     // best interim guess, used if stop() yields nothing
+let resultSent    = false;  // a transcript was already handed to the UI
+
+function clearRecTimers() {
+  clearTimeout(silenceTimer); silenceTimer = null;
+  clearTimeout(maxRecTimer);  maxRecTimer  = null;
+}
+
+/* Restart the quiet-countdown; when it expires we stop as if the user had
+   tapped the button again. */
+function armSilenceTimer() {
+  clearTimeout(silenceTimer);
+  silenceTimer = setTimeout(() => { if (isRecording) stopRecording(); }, SILENCE_MS);
+}
 
 /* Which UI initiated the current recording — the record button, its label,
    the status element and the callback that receives the transcript.
@@ -81,18 +104,25 @@ tryAgainBtn.addEventListener('click', resetUI);
 /* ── Start / Stop Recording ────────────────────────────────── */
 function startRecording(ctx) {
   if (!SpeechRecognition) return;
+  if (isRecording || stopping) return;   // a session is still winding down
   activeRec = ctx;
 
   recognition = new SpeechRecognition();
   recognition.lang            = 'zh-CN';
-  recognition.interimResults  = false;
+  // Interim results are what let us notice that the speaker went quiet, so we
+  // can end the session automatically instead of waiting for a second tap.
+  recognition.interimResults  = true;
   // Ask for several guesses: short single syllables (你/我/去…) are often
   // mis-heard as a homophone on the first guess, so we check them all.
   recognition.maxAlternatives = 6;
   recognition.continuous      = false;
 
+  lastInterim = '';
+  resultSent  = false;
+
   recognition.onstart = () => {
     isRecording = true;
+    maxRecTimer = setTimeout(() => { if (isRecording) stopRecording(); }, MAX_REC_MS);
     activeRec.btn.classList.add('record-btn--recording');
     activeRec.btn.setAttribute('aria-pressed', 'true');
     activeRec.btn.setAttribute('aria-label', 'Stop recording');
@@ -101,19 +131,38 @@ function startRecording(ctx) {
     startMicMeter(activeRec.btn);
   };
 
+  // Speech started — from here on, a stretch of silence means "done talking".
+  recognition.onspeechstart = () => armSilenceTimer();
+
+  // The engine itself noticed the end of the utterance: close immediately.
+  recognition.onspeechend = () => { if (isRecording) stopRecording(); };
+
   recognition.onresult = (event) => {
-    const result = event.results[0];
+    const result = event.results[event.results.length - 1];
     const alternatives = Array.from(result)
       .map(a => a.transcript.trim())
       .filter(Boolean);
-    activeRec.onResult(alternatives[0] || '', alternatives);
+
+    if (result.isFinal) {
+      deliverResult(alternatives);
+      stopRecording();            // no reason to keep the mic open
+    } else {
+      lastInterim = alternatives[0] || lastInterim;
+      armSilenceTimer();          // still talking — push the deadline back
+    }
   };
 
-  recognition.onend  = () => setIdleState();
+  recognition.onend = () => {
+    // stop() usually flushes a final result, but if it didn't, fall back to
+    // the last interim guess so the user still sees what was heard.
+    if (!resultSent && lastInterim) deliverResult([lastInterim]);
+    setIdleState();
+  };
 
   recognition.onerror = (event) => {
     console.warn('[Speech] Error:', event.error);
     const target = activeRec.statusEl;
+    if (!resultSent && lastInterim) deliverResult([lastInterim]);
     setIdleState();
     const messages = {
       'no-speech':           'No speech detected. Please try again.',
@@ -124,18 +173,31 @@ function startRecording(ctx) {
       'service-not-allowed': 'Speech service not allowed (needs HTTPS).',
     };
     const msg = messages[event.error];
-    if (msg) showStatus('⚠️ ' + msg, target);
+    if (msg && !resultSent) showStatus('⚠️ ' + msg, target);
   };
 
   try { recognition.start(); }
   catch (e) { console.warn('[Speech] Could not start:', e); setIdleState(); }
 }
 
+/* Hand a transcript to whichever view started the recording — exactly once
+   per session, since a final result and the onend fallback can both fire. */
+function deliverResult(alternatives) {
+  if (resultSent) return;
+  resultSent = true;
+  activeRec.onResult(alternatives[0] || '', alternatives);
+}
+
 function stopRecording() {
+  if (stopping) return;         // stop() already requested; wait for onend
+  stopping = true;
+  clearRecTimers();
   if (recognition) recognition.stop();
 }
 
 function setIdleState() {
+  clearRecTimers();
+  stopping    = false;
   isRecording = false;
   stopMicMeter();
   activeRec.btn.classList.remove('record-btn--recording');
