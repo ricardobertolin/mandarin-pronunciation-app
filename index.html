@@ -185,13 +185,23 @@
         </div>
         <div class="fc-controls">
           <span class="fc-counter" id="fcCounter">0 / 0</span>
-          <button class="fc-shuffle" id="fcShuffleBtn"
-                  aria-pressed="false">🔀 Shuffle</button>
+          <div class="fc-controls__actions">
+            <!-- Only shown once this deck has cards marked done -->
+            <button class="fc-shuffle" id="fcClearBtn" hidden
+                    aria-label="Clear done marks in this deck">↺ Clear</button>
+            <button class="fc-shuffle" id="fcShuffleBtn"
+                    aria-pressed="false">🔀 Shuffle</button>
+          </div>
         </div>
       </section>
 
       <!-- ── Flashcard ────────────────────────────────────── -->
       <section class="card fc-card">
+        <!-- Tick to retire this card from the rotation (per deck, remembered) -->
+        <label class="fc-done">
+          <input type="checkbox" id="fcDoneChk">
+          <span>Done</span>
+        </label>
         <div class="fc-hanzi" id="fcHanzi" lang="zh-CN"></div>
         <button class="btn-pronounce fc-listen" id="fcListenBtn"
                 aria-label="Listen to pronunciation">

@@ -1565,8 +1565,12 @@ function switchView(view) {
   });
   viewPractice.hidden = view !== 'practice';
   viewFlash.hidden    = view !== 'flashcards';
+  // Lets the stylesheet trim the shared header/footer on short screens for
+  // the flashcard view only — the practice view keeps its normal spacing.
+  document.body.classList.toggle('is-flashcards', view === 'flashcards');
 
   if (view === 'flashcards' && !fcInitialized) fcInit();
+  fcScheduleFit();   // sizes the card on entry, releases the lock on exit
 }
 
 tabButtons.forEach(btn =>
@@ -1599,6 +1603,8 @@ const fcVerdict     = document.getElementById('fcVerdict');
 const fcYouSaid     = document.getElementById('fcYouSaid');
 const fcPrevBtn     = document.getElementById('fcPrevBtn');
 const fcNextBtn     = document.getElementById('fcNextBtn');
+const fcDoneChk     = document.getElementById('fcDoneChk');
+const fcClearBtn    = document.getElementById('fcClearBtn');
 
 const flashcardRec = {
   btn:      fcRecordBtn,
@@ -1613,12 +1619,36 @@ let fcOrder       = [];   // indices into the active deck (optionally shuffled)
 let fcPos         = 0;
 let fcShuffled    = false;
 
+/* Cards ticked as "done" drop out of the rotation.  One storage key per
+   deck, so exam 1 and exam 2 progress never mix, and cards are keyed by
+   their characters rather than their position, so the marks survive
+   vocab.js being regenerated. */
+const FC_DONE_KEY = 'mpp.fc.done.';
+let fcDone = new Set();          // hanzi of the done cards in the ACTIVE deck
+
 const fcDeck = () => FLASHCARD_DECKS[fcDeckKey];
 const fcCurrentCard = () => fcDeck()[fcOrder[fcPos]];
+const fcIsDone = card => fcDone.has(card.hanzi);
 
-/* Build the play order — sequential, or Fisher–Yates shuffled */
+function fcLoadDone() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FC_DONE_KEY + fcDeckKey));
+    fcDone = new Set(Array.isArray(saved) ? saved : []);
+  } catch { fcDone = new Set(); }   // corrupt entry — start this deck clean
+}
+
+function fcSaveDone() {
+  // Private browsing / full quota: the marks just don't survive the session.
+  try { localStorage.setItem(FC_DONE_KEY + fcDeckKey, JSON.stringify([...fcDone])); }
+  catch { /* ignore */ }
+}
+
+/* Build the play order — sequential, or Fisher–Yates shuffled.
+   Done cards are left out entirely, so shuffle only ever draws from
+   what is still to study. */
 function fcBuildOrder() {
-  fcOrder = fcDeck().map((_, i) => i);
+  const deck = fcDeck();
+  fcOrder = deck.map((_, i) => i).filter(i => !fcIsDone(deck[i]));
   if (fcShuffled) {
     for (let i = fcOrder.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -1640,6 +1670,7 @@ function fcLoadDeck(key) {
     tab.classList.toggle('fc-deck-tab--active', on);
     tab.setAttribute('aria-selected', on ? 'true' : 'false');
   });
+  fcLoadDone();
   fcBuildOrder();
   fcRender();
 }
@@ -1648,25 +1679,134 @@ function fcRender() {
   if (isRecording) cancelRecording();
   stopCurrentAudio();
 
-  const card = fcCurrentCard();
-  fcHanzi.textContent     = card.hanzi;
-  fcPinyin.textContent    = card.pinyin;
+  const card  = fcCurrentCard();
+  const empty = !card;   // every card in this deck is marked done
+
+  fcHanzi.textContent     = empty ? '🎉' : card.hanzi;
+  fcPinyin.textContent    = empty ? '' : card.pinyin;
   // The answer gives the meaning in both languages: Portuguese and English.
-  fcMeaningPt.textContent = card.pt;
-  fcMeaningEn.textContent = card.en || '';
+  fcMeaningPt.textContent = empty ? '' : card.pt;
+  fcMeaningEn.textContent = empty ? '' : card.en || '';
+
+  fcDoneChk.checked = !empty && fcIsDone(card);
+  [fcDoneChk, fcListenBtn, fcRevealBtn, fcRecordBtn, fcPrevBtn, fcNextBtn]
+    .forEach(el => { el.disabled = empty; });
 
   fcAnswer.hidden       = true;
   fcResult.hidden       = true;
   fcVerdict.textContent = '';
   fcYouSaid.textContent = '';
-  showStatus('', fcStatus);
-  fcCounter.textContent = `${fcPos + 1} / ${fcOrder.length}`;
+  showStatus(empty ? 'Deck finished — tap ↺ Clear to study it again.' : '', fcStatus);
+  fcUpdateCounter();
+  fcScheduleFit();   // this card's characters may need a different size
 }
 
-function fcReveal() { fcAnswer.hidden = false; }
+/* Counter + Clear button; kept apart from fcRender so ticking "done"
+   can refresh them without rebuilding the card. */
+function fcUpdateCounter() {
+  const left = fcCurrentCard() ? `${fcPos + 1} / ${fcOrder.length}` : 'All done';
+  fcCounter.textContent = fcDone.size ? `${left} · ${fcDone.size} done` : left;
+  fcClearBtn.hidden = fcDone.size === 0;
+}
 
-function fcNext() { fcPos = (fcPos + 1) % fcOrder.length; fcRender(); }
-function fcPrev() { fcPos = (fcPos - 1 + fcOrder.length) % fcOrder.length; fcRender(); }
+/* ── Fit the flashcard screen to the viewport ──────────────────
+   The screen must never grow past the fold: rather than scrolling, the
+   character shrinks until the whole card — including the revealed answer
+   and the verdict — fits the window, on phones and desktop alike. */
+const FC_HANZI_MAX     = 96;   // px — matches the clamp() ceiling in the CSS
+const FC_HANZI_COMFORT = 48;   // px — floor while the rest is still full size
+const FC_HANZI_MIN     = 32;   // px — smaller than this stops being readable
+const FC_ZOOM_MIN      = 0.4;  // deepest the whole screen may be scaled down
+let fcFitQueued = false;
+
+const fcRoot = document.documentElement;
+
+const fcOverflows = () =>
+  fcRoot.scrollHeight > fcRoot.clientHeight + 1;   // 1px slack for rounding
+
+/* Largest value in [lo, hi] that doesn't overflow, found by bisection.
+   `apply` writes the candidate to the DOM; ~7 reflows per search. */
+function fcLargestFitting(lo, hi, step, apply) {
+  let best = lo;
+  apply(lo);
+  if (fcOverflows()) return lo;      // nothing in range fits
+  while (hi - lo > step) {
+    const mid = (lo + hi) / 2;
+    apply(mid);
+    if (fcOverflows()) hi = mid;
+    else { best = mid; lo = mid; }
+  }
+  apply(best);
+  return best;
+}
+
+function fcFit() {
+  if (viewFlash.hidden) {
+    document.body.classList.remove('fc-fit');
+    fcRoot.style.removeProperty('--fc-zoom');
+    return;
+  }
+
+  document.body.classList.remove('fc-fit');       // measure without the lock
+  document.body.classList.add('fc-measuring');    // …and with the answer laid out
+  const setHanzi = px => { fcHanzi.style.fontSize = Math.round(px) + 'px'; };
+  const setZoom  = z  => { fcRoot.style.setProperty('--fc-zoom', z.toFixed(3)); };
+
+  setZoom(1);
+  setHanzi(FC_HANZI_MAX);
+
+  if (fcOverflows()) {
+    // 1. Shrinking the character is the cheapest fix — it leaves the rest of
+    //    the screen at full size. Worth doing only if it solves the fit on
+    //    its own, so it stops at a size that's still comfortable to read.
+    fcLargestFitting(FC_HANZI_COMFORT, FC_HANZI_MAX, 1, setHanzi);
+
+    if (fcOverflows()) {
+      // 2. Then it's the surrounding chrome, not the character, that doesn't
+      //    fit — roughly 850px of it. Scale the whole screen down instead:
+      //    holding the character large and zooming out leaves it far bigger
+      //    than squeezing it alone ever could (81px vs 29px at 1280x800).
+      setHanzi(FC_HANZI_MAX);
+      fcLargestFitting(FC_ZOOM_MIN, 1, 0.005, setZoom);
+
+      // 3. Last resort before giving up: shrink the character at full zoom-out.
+      if (fcOverflows()) fcLargestFitting(FC_HANZI_MIN, FC_HANZI_MAX, 1, setHanzi);
+    }
+  }
+
+  document.body.classList.remove('fc-measuring');
+  // If it still doesn't fit (an extremely short window), leave the page
+  // scrollable rather than clipping content away.
+  document.body.classList.toggle('fc-fit', !fcOverflows());
+}
+
+/* Coalesce the bursts of calls (render + reveal + resize) into one pass */
+function fcScheduleFit() {
+  if (fcFitQueued) return;
+  fcFitQueued = true;
+  requestAnimationFrame(() => { fcFitQueued = false; fcFit(); });
+}
+
+function fcReveal() { fcAnswer.hidden = false; fcScheduleFit(); }
+
+/* Move `delta` cards, dropping anything ticked done on the way out.  A card
+   stays on screen while it's ticked, so an accidental tap can be undone
+   before you navigate away. */
+function fcStep(delta) {
+  if (!fcOrder.length) return;
+  const deck  = fcDeck();
+  const next  = (fcPos + delta + fcOrder.length) % fcOrder.length;
+  const wanted = fcOrder[next];
+
+  fcOrder = fcOrder.filter(i => !fcIsDone(deck[i]));
+  if (fcOrder.length) {
+    const at = fcOrder.indexOf(wanted);
+    fcPos = at >= 0 ? at : next % fcOrder.length;
+  } else {
+    fcPos = 0;
+  }
+  fcRender();
+}
 
 /* Compare what the user said to the current card's characters.
    We receive every guess the recognizer offered and keep the one that
@@ -1682,6 +1822,7 @@ function handleFlashcardResult(transcript, alternatives = [transcript]) {
   }
 
   const card = fcCurrentCard();
+  if (!card) return;   // deck finished — nothing to score against
 
   // This is a *pronunciation* drill, so judge by pinyin, not by the written
   // character. Homophones like 他/她 (both "tā") must count as correct.
@@ -1727,9 +1868,38 @@ fcShuffleBtn.addEventListener('click', () => {
   fcRender();
 });
 
+/* Ticking "done" retires the card; it disappears on the next navigation. */
+fcDoneChk.addEventListener('change', () => {
+  const card = fcCurrentCard();
+  if (!card) return;
+  if (fcDoneChk.checked) fcDone.add(card.hanzi);
+  else                   fcDone.delete(card.hanzi);
+  fcSaveDone();
+  fcUpdateCounter();
+});
+
+/* Clear only this deck's marks — the other exam is untouched. */
+fcClearBtn.addEventListener('click', () => {
+  if (!fcDone.size) return;
+  if (!confirm(`Clear ${fcDone.size} card(s) marked done in this deck?`)) return;
+  fcDone.clear();
+  fcSaveDone();
+  fcBuildOrder();
+  fcRender();
+});
+
 fcRevealBtn.addEventListener('click', fcReveal);
-fcListenBtn.addEventListener('click', () => speak(fcCurrentCard().hanzi, fcListenBtn));
-fcNextBtn.addEventListener('click', fcNext);
-fcPrevBtn.addEventListener('click', fcPrev);
+fcListenBtn.addEventListener('click', () => {
+  const card = fcCurrentCard();
+  if (card) speak(card.hanzi, fcListenBtn);
+});
+fcNextBtn.addEventListener('click', () => fcStep(1));
+fcPrevBtn.addEventListener('click', () => fcStep(-1));
 
 wireRecordButton(flashcardRec);
+
+/* Re-fit on anything that changes the available height: window resize,
+   rotation, and the late layout shift when the web fonts finish loading. */
+['resize', 'orientationchange', 'load'].forEach(evt =>
+  window.addEventListener(evt, fcScheduleFit)
+);

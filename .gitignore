@@ -1,0 +1,3 @@
+# Source review documents — vocab.js is generated from these
+*.docx
+~$*.docx

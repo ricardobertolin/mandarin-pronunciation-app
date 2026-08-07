@@ -53,10 +53,16 @@ body {
 .app {
   display: flex;
   flex-direction: column;
-  min-height: 100dvh;
   max-width: 540px;
   margin: 0 auto;
   padding: 0 16px 32px;
+
+  /* --fc-zoom is the flashcard fit's last resort: when even the smallest
+     character won't fit a short window, fcFit() scales the whole screen
+     down instead of letting it scroll. It stays 1 everywhere else, and
+     dividing the min-height by it keeps the shell exactly one screen tall. */
+  zoom: var(--fc-zoom, 1);
+  min-height: calc(100dvh / var(--fc-zoom, 1));
 }
 
 /* ── Header ────────────────────────────────────────────────── */
@@ -714,8 +720,14 @@ body {
   color: #fff;
 }
 
+.fc-controls__actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ── Flashcards: the card ──────────────────────────────────── */
 .fc-card {
+  position: relative;   /* anchors the “done” checkbox */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -724,14 +736,77 @@ body {
   padding: 32px 20px;
 }
 
+/* Sits in the card's empty top-right corner, so marking a card done
+   costs no vertical space. */
+.fc-done {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--transition);
+}
+
+.fc-done input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.fc-done:has(:checked)  { color: var(--color-correct); }
+.fc-done:has(:disabled) { opacity: 0.35; cursor: default; }
+
+/* Deck finished: nothing to listen to, reveal or pronounce */
+.fc-card button:disabled,
+.fc-nav button:disabled,
+.record-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 .fc-hanzi {
   font-family: var(--font-zh);
+  /* Starting size only — fcFit() overrides it inline so the character
+     shrinks to whatever the viewport can hold (see app.js). */
   font-size: clamp(3.5rem, 22vw, 6rem);
   font-weight: 700;
   color: var(--color-text);
   line-height: 1.1;
   word-break: break-all;
 }
+
+/* ── Flashcards: fit the whole screen, never scroll ─────────────
+   fcFit() adds .fc-fit once the screen has been shrunk enough to fit; if
+   it cannot fit even at the smallest character and the deepest zoom, the
+   class stays off and the page scrolls as usual rather than clipping. */
+body.fc-fit {
+  height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Measuring pass: lay the answer and verdict slots out (invisibly) so the
+   character is sized for the card's tallest state and doesn't jump when
+   the answer is revealed. */
+body.fc-measuring #fcAnswer,
+body.fc-measuring #fcResult {
+  display: block !important;
+  visibility: hidden;
+}
+
+body.fc-measuring #fcResult { min-height: 4em; }
 
 .fc-listen { margin-top: 0; }
 
@@ -824,7 +899,8 @@ body {
   /* Flashcards fit the viewport without scrolling */
   #view-flashcards .fc-deck-select   { padding: 12px 14px; }
   #view-flashcards .fc-deck-tabs     { margin-bottom: 10px; }
-  #view-flashcards .fc-card          { padding: 16px; gap: 6px; }
+  #view-flashcards .fc-card          { padding: 22px 16px 16px; gap: 6px; }
+  #view-flashcards .fc-done          { top: 7px; right: 10px; }
   #view-flashcards .fc-hanzi         { font-size: clamp(2.8rem, 20vw, 4.5rem); }
   #view-flashcards .fc-pinyin        { font-size: 1.15rem; }
   #view-flashcards .record-section   { gap: 8px; padding: 0; }
@@ -834,6 +910,22 @@ body {
   #view-flashcards .record-hint      { font-size: 0.68rem; margin-top: -2px; }
   #view-flashcards .fc-reveal        { margin-top: 2px; padding: 6px 18px; }
   #view-flashcards .fc-nav .btn-secondary { padding: 10px; }
+}
+
+/* ── Short viewports: trim the chrome before shrinking the character ──
+   Landscape phones and small laptop windows. Gives fcFit() more room to
+   work with, so the character stays readable instead of being squeezed. */
+@media (max-height: 880px) {
+  .is-flashcards .header    { padding: 14px 0 8px; }
+  .is-flashcards .header__zh{ font-size: 1.9rem; }
+  .is-flashcards .header__en{ font-size: 0.7rem; }
+  .is-flashcards .main      { gap: 12px; }
+  .is-flashcards .view      { gap: 12px; }
+  .is-flashcards .footer    { padding: 10px 0 4px; }
+  #view-flashcards .record-btn        { width: 96px; height: 96px; }
+  #view-flashcards .record-btn__icon  { font-size: 1.7rem; }
+  #view-flashcards .record-btn__label { font-size: 0.65rem; }
+  #view-flashcards .fc-card           { padding: 18px 16px 14px; gap: 6px; }
 }
 
 /* ── Utility ────────────────────────────────────────────────── */
