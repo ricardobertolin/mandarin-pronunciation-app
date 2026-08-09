@@ -86,6 +86,11 @@
                   aria-label="Pronounce target phrase">
             &#x1F50A;&nbsp;Pronounce
           </button>
+          <!-- Opens the translation panel for the target phrase -->
+          <button id="translateTargetBtn" class="btn-translate" hidden
+                  aria-label="Show the translation of the target phrase">
+            &#x1F310;&nbsp;Translation
+          </button>
         </div>
       </section>
 
@@ -118,20 +123,20 @@
           <span class="result-row__label">You said:</span>
           <div class="result-row__text" id="transcribed" lang="zh-CN"></div>
           <!-- Pinyin romanisation (populated by pinyinPro if online) -->
-          <!-- TTS button: pronounce what was said -->
-          <button id="pronounceTranscribedBtn" class="btn-pronounce" hidden
-                  aria-label="Pronounce transcribed text">
-            &#x1F50A;&nbsp;Pronounce
-          </button>
-          <!-- English translation (fetched from MyMemory API) -->
-          <div class="result-row__annotation result-row__annotation--english"
-               id="transcribedEnglish" hidden lang="en"></div>
-          <!-- Portuguese (Brazil) translation (fetched from MyMemory API) -->
-          <div class="result-row__annotation result-row__annotation--portuguese"
-               id="transcribedPortuguese" hidden lang="pt-BR"></div>
-          <!-- Pinyin romanisation (populated by pinyinPro if online) -->
           <div class="result-row__annotation result-row__annotation--pinyin"
                id="transcribedPinyin" hidden lang="zh-Latn"></div>
+          <!-- The translations themselves live in the panel below, so the
+               results card stays short no matter how long they are. -->
+          <div class="result-actions">
+            <button id="pronounceTranscribedBtn" class="btn-pronounce" hidden
+                    aria-label="Pronounce transcribed text">
+              &#x1F50A;&nbsp;Pronounce
+            </button>
+            <button id="translateTranscribedBtn" class="btn-translate" hidden
+                    aria-label="Show the translation of what you said">
+              &#x1F310;&nbsp;Translation
+            </button>
+          </div>
         </div>
 
         <!-- Comparison blocks (shown only when a target was provided) -->
@@ -189,26 +194,37 @@
             <!-- Only shown once this deck has cards marked done -->
             <button class="fc-shuffle" id="fcClearBtn" hidden
                     aria-label="Clear done marks in this deck">↺ Clear</button>
+            <!-- Cycles which side of the card is shown first:
+                 characters → pinyin → meaning -->
+            <button class="fc-shuffle fc-front" id="fcFrontBtn"
+                    aria-label="Front of card: characters — tap to change"
+                    title="Front of card: characters — tap to change">汉字</button>
             <button class="fc-shuffle" id="fcShuffleBtn"
                     aria-pressed="false">🔀 Shuffle</button>
           </div>
         </div>
       </section>
 
-      <!-- ── Flashcard ────────────────────────────────────── -->
-      <section class="card fc-card">
+      <!-- ── Flashcard ──────────────────────────────────────
+           The fc-front--* class picks which field is the prompt; the
+           other two make up the answer. The card is the same size in
+           every mode — see fcFit() in app.js. -->
+      <section class="card fc-card fc-front--hanzi" id="fcCard">
         <!-- Tick to retire this card from the rotation (per deck, remembered) -->
         <label class="fc-done">
           <input type="checkbox" id="fcDoneChk">
           <span>Done</span>
         </label>
-        <div class="fc-hanzi" id="fcHanzi" lang="zh-CN"></div>
+        <div class="fc-prompt" id="fcPrompt" lang="zh-CN"></div>
         <button class="btn-pronounce fc-listen" id="fcListenBtn"
                 aria-label="Listen to pronunciation">
           &#x1F50A;&nbsp;Listen
         </button>
 
-        <div class="fc-answer" id="fcAnswer" hidden>
+        <!-- Always laid out (never `hidden`): the slot keeps its reserved
+             height so revealing an answer never moves the card. -->
+        <div class="fc-answer" id="fcAnswer">
+          <div class="fc-ans-hanzi" id="fcAnsHanzi" lang="zh-CN"></div>
           <div class="fc-pinyin" id="fcPinyin" lang="zh-Latn"></div>
           <!-- Meaning shown in both Portuguese and English -->
           <div class="fc-meaning">
@@ -232,7 +248,8 @@
         <p class="record-hint">Tap · or hold to speak a longer answer</p>
         <p class="status" id="fcStatus" aria-live="polite" aria-atomic="true"></p>
 
-        <div class="fc-result" id="fcResult" hidden>
+        <!-- Same reserved-slot treatment as the answer above -->
+        <div class="fc-result" id="fcResult">
           <div class="fc-verdict" id="fcVerdict"></div>
           <div class="fc-yousaid" id="fcYouSaid" lang="zh-CN"></div>
         </div>
@@ -249,11 +266,48 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v2.6.0 &nbsp;·&nbsp; Web Speech API</p>
+      <p>v2.8.0 &nbsp;·&nbsp; Web Speech API</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 
   </div><!-- /app -->
+
+  <!-- ── Translation panel ──────────────────────────────────────
+       Floats over the record button instead of stacking more lines
+       into the results card. Sits outside .app so the flashcard
+       zoom never scales it. -->
+  <div class="tx-overlay" id="txOverlay" hidden>
+    <div class="tx-backdrop" id="txBackdrop"></div>
+    <div class="tx-panel" role="dialog" aria-modal="true" aria-labelledby="txTitle">
+      <div class="tx-panel__head">
+        <h2 class="tx-panel__title" id="txTitle">Translation</h2>
+        <button class="tx-close" id="txCloseBtn" aria-label="Close translation">&#x2715;</button>
+      </div>
+
+      <div class="tx-source">
+        <div class="tx-hanzi" id="txHanzi" lang="zh-CN"></div>
+        <div class="tx-pinyin" id="txPinyin" lang="zh-Latn"></div>
+      </div>
+
+      <div class="tx-lines">
+        <div class="tx-line">
+          <span class="tx-line__tag">EN</span>
+          <span class="tx-line__text" id="txEnglish" lang="en"></span>
+        </div>
+        <div class="tx-line">
+          <span class="tx-line__tag tx-line__tag--pt">PT</span>
+          <span class="tx-line__text tx-line__text--pt" id="txPortuguese" lang="pt-BR"></span>
+        </div>
+      </div>
+
+      <div class="tx-actions">
+        <button class="btn-pronounce" id="txSpeakBtn" aria-label="Pronounce this phrase">
+          &#x1F50A;&nbsp;Pronounce
+        </button>
+        <button class="tx-retry" id="txRetryBtn" hidden>Retry</button>
+      </div>
+    </div>
+  </div>
 
   <script src="vocab.js"></script>
   <script src="app.js"></script>

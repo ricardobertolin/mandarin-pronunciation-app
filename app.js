@@ -34,8 +34,6 @@ const statusEl           = document.getElementById('status');
 const resultsSection     = document.getElementById('results');
 const transcribedEl         = document.getElementById('transcribed');
 const transcribedPinyin     = document.getElementById('transcribedPinyin');
-const transcribedEnglish    = document.getElementById('transcribedEnglish');
-const transcribedPortuguese = document.getElementById('transcribedPortuguese');
 const comparisonBlock    = document.getElementById('comparisonBlock');
 const targetDisplay      = document.getElementById('targetDisplay');
 const targetPinyin       = document.getElementById('targetPinyin');
@@ -44,6 +42,19 @@ const scoreValue              = document.getElementById('scoreValue');
 const tryAgainBtn             = document.getElementById('tryAgainBtn');
 const pronounceTargetBtn      = document.getElementById('pronounceTargetBtn');
 const pronounceTranscribedBtn = document.getElementById('pronounceTranscribedBtn');
+const translateTargetBtn      = document.getElementById('translateTargetBtn');
+const translateTranscribedBtn = document.getElementById('translateTranscribedBtn');
+
+/* Translation panel (floats over the record button) */
+const txOverlay    = document.getElementById('txOverlay');
+const txBackdrop   = document.getElementById('txBackdrop');
+const txCloseBtn   = document.getElementById('txCloseBtn');
+const txHanzi      = document.getElementById('txHanzi');
+const txPinyin     = document.getElementById('txPinyin');
+const txEnglish    = document.getElementById('txEnglish');
+const txPortuguese = document.getElementById('txPortuguese');
+const txSpeakBtn   = document.getElementById('txSpeakBtn');
+const txRetryBtn   = document.getElementById('txRetryBtn');
 
 /* ── Speech Recognition ────────────────────────────────────── */
 const SpeechRecognition =
@@ -468,8 +479,9 @@ function handleTranscript(transcript, alternatives = [transcript]) {
 
   transcribedEl.textContent = transcript;
   pronounceTranscribedBtn.hidden = false;   // show TTS button for result
+  translateTranscribedBtn.hidden = false;   // …and the translation panel
 
-  // Show pinyin + English translation below the Chinese characters
+  // Pinyin under the transcript; translations wait in the panel
   showTranscriptAnnotations(transcript);
 
   if (target) {
@@ -530,36 +542,108 @@ function pinyinKey(text) {
 
 let annotationGeneration = 0;   // invalidates stale in-flight fetches
 
+/* Only pinyin goes under the transcript — the English and Portuguese
+   readings live in the translation panel, one tap away, so the results
+   card keeps the same compact height whatever was said. */
 async function showTranscriptAnnotations(chineseText) {
   const gen = ++annotationGeneration;
 
-  // ── Show placeholders ────────────────────────────────────
-  transcribedEnglish.textContent    = 'Translating…';
-  transcribedEnglish.hidden         = false;
-  transcribedPortuguese.textContent = 'Traduzindo…';
-  transcribedPortuguese.hidden      = false;
-  transcribedPinyin.textContent     = '…';
-  transcribedPinyin.hidden          = false;
+  transcribedPinyin.textContent = '…';
+  transcribedPinyin.hidden      = false;
 
-  // ── Fetch all in parallel ────────────────────────────────
-  const [english, portuguese, pinyin] = await Promise.all([
-    translateText(chineseText, 'zh-CN', 'en'),
-    translateText(chineseText, 'zh-CN', 'pt-BR'),
-    getPinyin(chineseText),
-  ]);
+  // Warm the panel's cache now, so opening it is instant
+  translationFor(chineseText);
 
-  // Discard if the UI was reset or a newer transcript arrived meanwhile
-  if (gen !== annotationGeneration) return;
+  const pinyin = await getPinyin(chineseText);
+  if (gen !== annotationGeneration) return;   // reset, or a newer transcript
 
-  transcribedEnglish.textContent    = english    ?? '(Translation unavailable)';
-  transcribedPortuguese.textContent = portuguese ?? '(Tradução indisponível)';
-  if (pinyin) {
-    transcribedPinyin.textContent = pinyin;
-    transcribedPinyin.hidden      = false;
-  } else {
-    transcribedPinyin.hidden = true;
-  }
+  transcribedPinyin.textContent = pinyin ?? '';
+  transcribedPinyin.hidden      = !pinyin;
 }
+
+/* ── Translation panel ─────────────────────────────────────────
+   One floating window shared by the target phrase and the
+   transcript.  Results are cached per phrase so reopening it (or
+   opening it for a phrase already annotated) costs no request.
+   ──────────────────────────────────────────────────────────── */
+const translationCache = new Map();   // chinese text → Promise<{en, pt}>
+
+function translationFor(chineseText, { refresh = false } = {}) {
+  if (refresh) translationCache.delete(chineseText);
+
+  if (!translationCache.has(chineseText)) {
+    const pending = Promise.all([
+      translateText(chineseText, 'zh-CN', 'en'),
+      translateText(chineseText, 'zh-CN', 'pt-BR'),
+    ]).then(([en, pt]) => ({ en, pt }));
+
+    // A run where both sides failed is worth retrying, so don't keep it
+    pending.then(({ en, pt }) => {
+      if (!en && !pt) translationCache.delete(chineseText);
+    });
+
+    translationCache.set(chineseText, pending);
+  }
+  return translationCache.get(chineseText);
+}
+
+let txText       = '';   // the phrase currently in the panel
+let txGeneration = 0;    // invalidates results for a phrase we've moved off
+
+function setTxLine(el, text, state) {
+  el.textContent = text;
+  el.classList.toggle('tx-line__text--pending', state === 'pending');
+  el.classList.toggle('tx-line__text--failed',  state === 'failed');
+}
+
+async function openTranslation(chineseText, { refresh = false } = {}) {
+  const text = (chineseText || '').trim();
+  if (!text) return;
+
+  const gen = ++txGeneration;
+  txText    = text;
+
+  txHanzi.textContent  = text;
+  txPinyin.textContent = getPinyinLib()?.pinyin(text, { separator: ' ' }) ?? '';
+  setTxLine(txEnglish,    'Translating…', 'pending');
+  setTxLine(txPortuguese, 'Traduzindo…',  'pending');
+  txRetryBtn.hidden = true;
+
+  if (txOverlay.hidden) {
+    txOverlay.hidden = false;
+    document.body.classList.add('tx-open');
+    txCloseBtn.focus();
+  }
+
+  const { en, pt } = await translationFor(text, { refresh });
+  if (gen !== txGeneration) return;   // panel closed or moved to another phrase
+
+  setTxLine(txEnglish,    en ?? 'Translation unavailable',  en ? null : 'failed');
+  setTxLine(txPortuguese, pt ?? 'Tradução indisponível',    pt ? null : 'failed');
+  txRetryBtn.hidden = !!(en && pt);
+}
+
+function closeTranslation() {
+  if (txOverlay.hidden) return;
+  txGeneration++;            // drop whatever is still in flight
+  txOverlay.hidden = true;
+  document.body.classList.remove('tx-open');
+  stopCurrentAudio();
+}
+
+txCloseBtn.addEventListener('click', closeTranslation);
+txBackdrop.addEventListener('click', closeTranslation);
+txSpeakBtn.addEventListener('click', () => { if (txText) speak(txText, txSpeakBtn); });
+txRetryBtn.addEventListener('click', () => openTranslation(txText, { refresh: true }));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeTranslation();
+});
+
+translateTranscribedBtn.addEventListener('click',
+  () => openTranslation(transcribedEl.textContent));
+translateTargetBtn.addEventListener('click',
+  () => openTranslation(targetInput.value));
 
 /* ── Translation ───────────────────────────────────────────────
    Primary:  Google Translate free "gtx" endpoint — best quality,
@@ -762,18 +846,18 @@ function renderDiff(charResults) {
 function showStatus(message, target = statusEl) { target.textContent = message; }
 
 function resetUI() {
-  annotationGeneration++;   // drop any in-flight translation results
+  annotationGeneration++;   // drop any in-flight annotation results
+  closeTranslation();
   stopCurrentAudio();       // stop Edge TTS / Web Speech playback
 
   resultsSection.hidden              = true;
   comparisonBlock.hidden             = true;
   transcribedEl.textContent          = '';
   transcribedPinyin.hidden           = true;
-  transcribedEnglish.hidden          = true;
-  transcribedPortuguese.hidden       = true;
   targetPinyin.hidden                = true;
   targetPinyin.textContent           = '';
   pronounceTranscribedBtn.hidden     = true;
+  translateTranscribedBtn.hidden     = true;
   pronounceTranscribedBtn.classList.remove('btn-pronounce--speaking');
   targetDisplay.textContent          = '';
   diffDisplay.innerHTML              = '';
@@ -1467,8 +1551,9 @@ async function autoTranslateInput(val, fromLang = 'en') {
     translateInputBtn.hidden   = true;
     translateInputBtn.disabled = false;
     convertBtn.hidden          = true;
-    // Show pronounce button now that the field has Chinese text
+    // Show the pronounce / translation buttons now that the field has Chinese
     pronounceTargetBtn.hidden  = false;
+    translateTargetBtn.hidden  = false;
   } else {
     translateInputBtn.textContent = '→ Translate to Chinese';
     translateInputBtn.disabled    = false;
@@ -1490,6 +1575,7 @@ function applyLang(lang) {
   translateInputBtn.textContent = '→ Translate to Chinese';
   translateInputBtn.disabled    = false;
   pronounceTargetBtn.hidden = !isChinese || !val.trim();
+  translateTargetBtn.hidden = pronounceTargetBtn.hidden;
 
   // Update chip row visibility and active state
   const showChips = !!(lang || (isChinese && val.trim()));
@@ -1530,6 +1616,7 @@ convertBtn.addEventListener('click', () => {
   targetInput.value = convertPinyin(targetInput.value);
   convertBtn.hidden         = true;
   pronounceTargetBtn.hidden = false;
+  translateTargetBtn.hidden = false;
   targetInput.focus();
 });
 
@@ -1588,9 +1675,12 @@ tabButtons.forEach(btn =>
 const fcDeckTabs    = document.querySelectorAll('.fc-deck-tab');
 const fcCounter     = document.getElementById('fcCounter');
 const fcShuffleBtn  = document.getElementById('fcShuffleBtn');
-const fcHanzi       = document.getElementById('fcHanzi');
+const fcFrontBtn    = document.getElementById('fcFrontBtn');
+const fcCard        = document.getElementById('fcCard');
+const fcPrompt      = document.getElementById('fcPrompt');
 const fcListenBtn   = document.getElementById('fcListenBtn');
 const fcAnswer      = document.getElementById('fcAnswer');
+const fcAnsHanzi    = document.getElementById('fcAnsHanzi');
 const fcPinyin      = document.getElementById('fcPinyin');
 const fcMeaningPt   = document.getElementById('fcMeaningPt');
 const fcMeaningEn   = document.getElementById('fcMeaningEn');
@@ -1618,6 +1708,36 @@ let fcDeckKey     = 'prova1';
 let fcOrder       = [];   // indices into the active deck (optionally shuffled)
 let fcPos         = 0;
 let fcShuffled    = false;
+
+/* Which field is the prompt — three ways to drill the same deck:
+   see the characters and say them, read the pinyin, or work back from
+   the meaning.  Whatever is on the front is left out of the answer. */
+const FC_FRONTS = [
+  { key: 'hanzi',   label: '汉字', name: 'characters' },
+  { key: 'pinyin',  label: '拼音', name: 'pinyin' },
+  { key: 'meaning', label: '意思', name: 'meaning' },
+];
+let fcFront = 'hanzi';   // characters by default
+
+/* Portuguese and English on one line, for the meaning front */
+const fcMeaningText = card => (card.en ? `${card.pt} · ${card.en}` : card.pt);
+
+/* The prompt for a card in a given mode */
+function fcFrontText(card, front = fcFront) {
+  if (front === 'pinyin')  return card.pinyin;
+  if (front === 'meaning') return fcMeaningText(card);
+  return card.hanzi;
+}
+
+function fcApplyFront(front) {
+  FC_FRONTS.forEach(m =>
+    fcCard.classList.toggle(`fc-front--${m.key}`, m.key === front));
+  // The prompt's language changes with it, so screen readers and the font
+  // stack follow the content rather than the markup.
+  fcPrompt.lang = front === 'hanzi' ? 'zh-CN'
+                : front === 'pinyin' ? 'zh-Latn'
+                : 'pt-BR';
+}
 
 /* Cards ticked as "done" drop out of the rotation.  One storage key per
    deck, so exam 1 and exam 2 progress never mix, and cards are keyed by
@@ -1673,6 +1793,7 @@ function fcLoadDeck(key) {
   fcLoadDone();
   fcBuildOrder();
   fcRender();
+  fcScheduleFit();   // the new deck has its own biggest card to size for
 }
 
 function fcRender() {
@@ -1682,7 +1803,10 @@ function fcRender() {
   const card  = fcCurrentCard();
   const empty = !card;   // every card in this deck is marked done
 
-  fcHanzi.textContent     = empty ? '🎉' : card.hanzi;
+  // Every field is filled in; the stylesheet leaves out whichever one is
+  // currently the prompt.
+  fcPrompt.textContent    = empty ? '🎉' : fcFrontText(card);
+  fcAnsHanzi.textContent  = empty ? '' : card.hanzi;
   fcPinyin.textContent    = empty ? '' : card.pinyin;
   // The answer gives the meaning in both languages: Portuguese and English.
   fcMeaningPt.textContent = empty ? '' : card.pt;
@@ -1692,13 +1816,14 @@ function fcRender() {
   [fcDoneChk, fcListenBtn, fcRevealBtn, fcRecordBtn, fcPrevBtn, fcNextBtn]
     .forEach(el => { el.disabled = empty; });
 
-  fcAnswer.hidden       = true;
-  fcResult.hidden       = true;
+  // The answer and verdict slots keep their reserved height either way —
+  // only their visibility changes, so the card never moves.
+  fcAnswer.classList.remove('fc-answer--shown');
+  fcResult.classList.remove('fc-result--shown');
   fcVerdict.textContent = '';
   fcYouSaid.textContent = '';
   showStatus(empty ? 'Deck finished — tap ↺ Clear to study it again.' : '', fcStatus);
   fcUpdateCounter();
-  fcScheduleFit();   // this card's characters may need a different size
 }
 
 /* Counter + Clear button; kept apart from fcRender so ticking "done"
@@ -1710,19 +1835,90 @@ function fcUpdateCounter() {
 }
 
 /* ── Fit the flashcard screen to the viewport ──────────────────
-   The screen must never grow past the fold: rather than scrolling, the
-   character shrinks until the whole card — including the revealed answer
-   and the verdict — fits the window, on phones and desktop alike. */
-const FC_HANZI_MAX     = 96;   // px — matches the clamp() ceiling in the CSS
-const FC_HANZI_COMFORT = 48;   // px — floor while the rest is still full size
+   Two goals, in this order:
+     1. The screen never grows past the fold — no scrolling.
+     2. It is the *same* screen on every card of the deck: one character
+        size throughout, and a fixed height for everything above Prev/Next.
+   Both come from measuring the deck's biggest card once (per deck, per
+   viewport) instead of re-sizing on every card, which is what used to make
+   the layout twitch as you flipped through. */
+const FC_HANZI_MAX     = 104;  // px — matches the clamp() ceiling in the CSS
+const FC_HANZI_COMFORT = 52;   // px — floor while the rest is still full size
 const FC_HANZI_MIN     = 32;   // px — smaller than this stops being readable
 const FC_ZOOM_MIN      = 0.4;  // deepest the whole screen may be scaled down
+
+/* The pinyin and meaning fronts get whatever size fits the box the
+   characters left behind — Latin text at 100px would look absurd anyway,
+   hence the lower ceilings. */
+const FC_PINYIN_MAX  = 56, FC_PINYIN_MIN  = 18;
+const FC_MEANING_MAX = 30, FC_MEANING_MIN = 13;
 let fcFitQueued = false;
 
 const fcRoot = document.documentElement;
 
 const fcOverflows = () =>
   fcRoot.scrollHeight > fcRoot.clientHeight + 1;   // 1px slack for rounding
+
+/* Size of the prompt text as drawn, whatever the alignment — scrollWidth
+   can't see the overflow of centred text, a Range can.  Measured in the
+   same (zoomed) space as the box it's compared against. */
+function fcPromptTextRect() {
+  const range = document.createRange();
+  range.selectNodeContents(fcPrompt);
+  return range.getBoundingClientRect();
+}
+
+/* The deck's most demanding cards: the widest characters, and the handful
+   with the wordiest answers.  Everything the screen reserves is measured
+   from these, so no card in the deck can exceed what's laid aside for it.
+   (Measuring all ~96 cards on every resize would just be waste — the
+   tallest answer is always among the longest.) */
+const fcWorstCaseCache = new Map();
+
+function fcWorstCase() {
+  if (!fcWorstCaseCache.has(fcDeckKey)) {
+    const deck = fcDeck();
+    const len  = c => (c.pinyin || '').length + (c.pt || '').length + (c.en || '').length;
+
+    const longest = (best, s) => ((s || '').length > best.length ? s : best);
+
+    fcWorstCaseCache.set(fcDeckKey, {
+      hanzi:    deck.reduce((best, c) => longest(best, c.hanzi), ''),
+      pinyin:   deck.reduce((best, c) => longest(best, c.pinyin), ''),
+      meaning:  deck.reduce((best, c) => longest(best, fcMeaningText(c)), ''),
+      wordiest: [...deck].sort((a, b) => len(b) - len(a)).slice(0, 3),
+    });
+  }
+  return fcWorstCaseCache.get(fcDeckKey);
+}
+
+/* Sample verdict long enough to fill the two lines the slot allows —
+   -webkit-line-clamp caps it there, so the measured height is exact. */
+const FC_SAID_SAMPLE = 'You said: ' + '你好世界 · nǐ hǎo shì jiè '.repeat(6);
+
+/* Largest size in [min, max] at which the prompt text — wrapped as needed —
+   still fits inside the fixed prompt box.  Used for the pinyin and meaning
+   fronts, which have to live in the box the characters defined. */
+function fcFitPromptText(cssVar, max, min) {
+  const box   = fcPrompt.getBoundingClientRect();
+  const fits  = px => {
+    fcRoot.style.setProperty(cssVar, Math.round(px) + 'px');
+    const text = fcPromptTextRect();
+    return text.height <= box.height + 1 && text.width <= box.width + 1;
+  };
+
+  let best = min;
+  if (fits(max)) {
+    best = max;
+  } else {
+    let lo = min, hi = max;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) { best = mid; lo = mid; } else hi = mid;
+    }
+  }
+  fcRoot.style.setProperty(cssVar, Math.round(best) + 'px');
+}
 
 /* Largest value in [lo, hi] that doesn't overflow, found by bisection.
    `apply` writes the candidate to the DOM; ~7 reflows per search. */
@@ -1747,34 +1943,108 @@ function fcFit() {
     return;
   }
 
-  document.body.classList.remove('fc-fit');       // measure without the lock
-  document.body.classList.add('fc-measuring');    // …and with the answer laid out
-  const setHanzi = px => { fcHanzi.style.fontSize = Math.round(px) + 'px'; };
-  const setZoom  = z  => { fcRoot.style.setProperty('--fc-zoom', z.toFixed(3)); };
+  // Swap the deck's most demanding content in for the measurements — all
+  // within this one frame, so nothing is ever painted.
+  const worst = fcWorstCase();
+  const shown = {
+    prompt:  fcPrompt.textContent,    ansHanzi: fcAnsHanzi.textContent,
+    pinyin:  fcPinyin.textContent,    pt:       fcMeaningPt.textContent,
+    en:      fcMeaningEn.textContent, verdict:  fcVerdict.textContent,
+    youSaid: fcYouSaid.textContent,
+  };
+  fcVerdict.textContent = '✗ 再试一次 · 100%';
+  fcYouSaid.textContent = FC_SAID_SAMPLE;
 
+  document.body.classList.remove('fc-fit');       // measure without the lock
+  document.body.classList.add('fc-measuring');    // slots take their natural height
+  fcRoot.style.removeProperty('--fc-prompt-h');   // …and so does the prompt
+
+  const setHanzi = px => fcRoot.style.setProperty('--fc-hanzi', Math.round(px) + 'px');
+  const setZoom  = z  => fcRoot.style.setProperty('--fc-zoom', z.toFixed(3));
+
+  // ── Reserve the fixed slots first, so the fit below sizes the character
+  //    against the screen every card will actually get.  The answer holds
+  //    two of the three fields, so it is reserved for the worst mode too.
   setZoom(1);
-  setHanzi(FC_HANZI_MAX);
+  let answerH = 0;
+  for (const card of worst.wordiest) {
+    fcAnsHanzi.textContent  = card.hanzi;
+    fcPinyin.textContent    = card.pinyin;
+    fcMeaningPt.textContent = card.pt;
+    fcMeaningEn.textContent = card.en || '';
+    for (const front of FC_FRONTS) {
+      fcApplyFront(front.key);
+      answerH = Math.max(answerH, fcAnswer.offsetHeight);
+    }
+  }
+  fcRoot.style.setProperty('--fc-answer-h',  answerH + 'px');
+  fcRoot.style.setProperty('--fc-result-h', fcResult.offsetHeight + 'px');
+  document.body.classList.remove('fc-measuring');
+
+  // The whole-screen fit is done on the characters — the tallest front, and
+  // the one whose size the other two then have to fit inside.
+  fcApplyFront('hanzi');
+  fcPrompt.textContent = worst.hanzi;
+
+  /* Largest size that keeps the longest card on a single line. Box and text
+     are measured under the same zoom, so their ratio is zoom-independent. */
+  const widthCap = () => {
+    setHanzi(FC_HANZI_MAX);
+    const avail = fcPrompt.getBoundingClientRect().width;
+    const text  = fcPromptTextRect().width;
+    return text > avail
+      ? Math.max(FC_HANZI_MIN, Math.floor(FC_HANZI_MAX * avail / text))
+      : FC_HANZI_MAX;
+  };
+
+  let cap = widthCap();
+  setHanzi(cap);
 
   if (fcOverflows()) {
     // 1. Shrinking the character is the cheapest fix — it leaves the rest of
     //    the screen at full size. Worth doing only if it solves the fit on
     //    its own, so it stops at a size that's still comfortable to read.
-    fcLargestFitting(FC_HANZI_COMFORT, FC_HANZI_MAX, 1, setHanzi);
+    fcLargestFitting(Math.min(FC_HANZI_COMFORT, cap), cap, 1, setHanzi);
 
     if (fcOverflows()) {
       // 2. Then it's the surrounding chrome, not the character, that doesn't
       //    fit — roughly 850px of it. Scale the whole screen down instead:
       //    holding the character large and zooming out leaves it far bigger
       //    than squeezing it alone ever could (81px vs 29px at 1280x800).
-      setHanzi(FC_HANZI_MAX);
+      setHanzi(cap);
       fcLargestFitting(FC_ZOOM_MIN, 1, 0.005, setZoom);
 
+      // Zooming out widens the card in CSS pixels, so the one-line budget
+      // has to be recomputed before any further shrinking.
+      cap = widthCap();
+      setHanzi(cap);
+
       // 3. Last resort before giving up: shrink the character at full zoom-out.
-      if (fcOverflows()) fcLargestFitting(FC_HANZI_MIN, FC_HANZI_MAX, 1, setHanzi);
+      if (fcOverflows()) fcLargestFitting(Math.min(FC_HANZI_MIN, cap), cap, 1, setHanzi);
     }
   }
 
-  document.body.classList.remove('fc-measuring');
+  // Lock the box the characters ended up needing, then size the other two
+  // fronts to live inside exactly that — same card, whichever is showing.
+  fcRoot.style.setProperty('--fc-prompt-h', fcPrompt.offsetHeight + 'px');
+
+  fcApplyFront('pinyin');
+  fcPrompt.textContent = worst.pinyin;
+  fcFitPromptText('--fc-pinyin-front', FC_PINYIN_MAX, FC_PINYIN_MIN);
+
+  fcApplyFront('meaning');
+  fcPrompt.textContent = worst.meaning;
+  fcFitPromptText('--fc-meaning-front', FC_MEANING_MAX, FC_MEANING_MIN);
+
+  fcApplyFront(fcFront);
+  fcPrompt.textContent    = shown.prompt;
+  fcAnsHanzi.textContent  = shown.ansHanzi;
+  fcPinyin.textContent    = shown.pinyin;
+  fcMeaningPt.textContent = shown.pt;
+  fcMeaningEn.textContent = shown.en;
+  fcVerdict.textContent   = shown.verdict;
+  fcYouSaid.textContent   = shown.youSaid;
+
   // If it still doesn't fit (an extremely short window), leave the page
   // scrollable rather than clipping content away.
   document.body.classList.toggle('fc-fit', !fcOverflows());
@@ -1787,7 +2057,9 @@ function fcScheduleFit() {
   requestAnimationFrame(() => { fcFitQueued = false; fcFit(); });
 }
 
-function fcReveal() { fcAnswer.hidden = false; fcScheduleFit(); }
+/* The slot is already there — revealing is purely a visibility change,
+   so no re-fit and no reflow of the rest of the screen. */
+function fcReveal() { fcAnswer.classList.add('fc-answer--shown'); }
 
 /* Move `delta` cards, dropping anything ticked done on the way out.  A card
    stays on screen while it's ticked, so an accidental tap can be undone
@@ -1841,7 +2113,7 @@ function handleFlashcardResult(transcript, alternatives = [transcript]) {
   if (matched) score = 100;
   const ok = matched || score >= 100;
 
-  fcResult.hidden       = false;
+  fcResult.classList.add('fc-result--shown');
   fcVerdict.textContent = ok ? '✓ 对了 · Correct!' : `✗ 再试一次 · ${score}%`;
   fcVerdict.classList.toggle('fc-verdict--good', ok);
   fcVerdict.classList.toggle('fc-verdict--bad', !ok);
@@ -1859,6 +2131,23 @@ function handleFlashcardResult(transcript, alternatives = [transcript]) {
 fcDeckTabs.forEach(tab =>
   tab.addEventListener('click', () => fcLoadDeck(tab.dataset.deck))
 );
+
+/* Cycle the front: characters → pinyin → meaning → characters.  Sizes for
+   all three were worked out by the last fit, so this only swaps content —
+   the card itself stays exactly as big as it was. */
+fcFrontBtn.addEventListener('click', () => {
+  const at   = FC_FRONTS.findIndex(m => m.key === fcFront);
+  const next = FC_FRONTS[(at + 1) % FC_FRONTS.length];
+
+  fcFront = next.key;
+  fcFrontBtn.textContent = next.label;
+  const hint = `Front of card: ${next.name} — tap to change`;
+  fcFrontBtn.setAttribute('aria-label', hint);
+  fcFrontBtn.title = hint;
+
+  fcApplyFront(fcFront);
+  fcRender();   // re-prompts the current card, hiding any revealed answer
+});
 
 fcShuffleBtn.addEventListener('click', () => {
   fcShuffled = !fcShuffled;

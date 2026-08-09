@@ -273,6 +273,35 @@ body {
   color: #fff;
 }
 
+/* ── Translation button ────────────────────────────────────────
+   Same pill as Pronounce, in the green used for the PT line, so
+   the two read as a pair of tools rather than a wall of text. */
+.btn-translate {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10px;
+  padding: 5px 14px;
+  border: 1.5px solid #6f9e5f;
+  border-radius: 99px;
+  background: transparent;
+  color: #9dbf8e;
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition), color var(--transition);
+  animation: fade-in 0.2s ease;
+}
+
+.btn-translate:hover,
+.btn-translate:active {
+  background: #6f9e5f;
+  color: #fff;
+}
+
 /* ── Record section ────────────────────────────────────────── */
 .record-section {
   display: flex;
@@ -437,7 +466,7 @@ body {
   word-break: break-all;
 }
 
-/* ── Transcription annotations (pinyin + English) ─────────── */
+/* ── Transcription annotations (pinyin) ───────────────────── */
 .result-row__annotation {
   margin-top: 5px;
   font-size: 0.9rem;
@@ -451,14 +480,11 @@ body {
   color: #7eb8d4;   /* soft blue — visually distinct from characters */
 }
 
-.result-row__annotation--english {
-  font-style: italic;
-  color: var(--color-text-muted);
-}
-
-.result-row__annotation--portuguese {
-  font-style: italic;
-  color: #9dbf8e;   /* soft green — distinct from the English muted grey */
+/* Pronounce + Translation sit on one row under the transcript */
+.result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 /* ── Diff characters ───────────────────────────────────────── */
@@ -720,6 +746,17 @@ body {
   color: #fff;
 }
 
+/* Front selector: reads as a state, and every label is two CJK characters
+   wide, so cycling it can never reflow the row. */
+.fc-front {
+  min-width: 3.4rem;
+  border-color: var(--color-surface-alt);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-family: var(--font-zh);
+  font-size: 0.8rem;
+}
+
 .fc-controls__actions {
   display: flex;
   gap: 8px;
@@ -776,15 +813,50 @@ body {
   pointer-events: none;
 }
 
-.fc-hanzi {
+/* ── Flashcards: the prompt (front of the card) ────────────────
+   One fixed box whatever the mode shows — characters, pinyin or the
+   meaning. fcFit() locks its height to the character line and sizes the
+   two text modes to fit inside it, so switching front never resizes
+   the card. */
+.fc-prompt {
+  align-self: stretch;   /* full card width, so the fit can measure it */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--fc-prompt-h, auto);
+  overflow: hidden;      /* guard: never let a stray card widen the page */
+  line-height: 1.15;
+}
+
+/* Characters: one size for the whole deck, set by fcFit() from the deck's
+   longest card, so the character never changes size card to card.
+   The clamp() is only the pre-fit fallback. */
+.fc-front--hanzi .fc-prompt {
   font-family: var(--font-zh);
-  /* Starting size only — fcFit() overrides it inline so the character
-     shrinks to whatever the viewport can hold (see app.js). */
-  font-size: clamp(3.5rem, 22vw, 6rem);
+  font-size: var(--fc-hanzi, clamp(3.5rem, 22vw, 6.5rem));
   font-weight: 700;
   color: var(--color-text);
-  line-height: 1.1;
-  word-break: break-all;
+  white-space: nowrap;
+}
+
+/* Pinyin front — same soft blue it has as an answer */
+.fc-front--pinyin .fc-prompt {
+  font-family: var(--font-ui);
+  font-size: var(--fc-pinyin-front, 2.6rem);
+  font-weight: 600;
+  color: #7eb8d4;
+  letter-spacing: 0.02em;
+  overflow-wrap: break-word;
+}
+
+/* Meaning front — the same green/grey pairing as the answer line */
+.fc-front--meaning .fc-prompt {
+  font-family: var(--font-ui);
+  font-size: var(--fc-meaning-front, 1.5rem);
+  font-style: italic;
+  color: #9dbf8e;
+  line-height: 1.3;
+  overflow-wrap: break-word;
 }
 
 /* ── Flashcards: fit the whole screen, never scroll ─────────────
@@ -797,21 +869,43 @@ body.fc-fit {
   overscroll-behavior: none;
 }
 
-/* Measuring pass: lay the answer and verdict slots out (invisibly) so the
-   character is sized for the card's tallest state and doesn't jump when
-   the answer is revealed. */
-body.fc-measuring #fcAnswer,
-body.fc-measuring #fcResult {
-  display: block !important;
+/* Measuring pass: let the reserved slots take their natural height so
+   fcFit() can read the deck's tallest answer and reserve exactly that. */
+body.fc-measuring .fc-answer,
+body.fc-measuring .fc-result {
+  height: auto !important;
   visibility: hidden;
 }
 
-body.fc-measuring #fcResult { min-height: 4em; }
-
 .fc-listen { margin-top: 0; }
 
+/* The answer slot always occupies its reserved height — revealing only
+   turns it visible, so nothing on the screen moves. */
 .fc-answer {
-  animation: fade-in 0.2s ease;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: var(--fc-answer-h, auto);
+  overflow: hidden;   /* guard: nothing may grow the card */
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.fc-answer--shown {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* The characters, when they are the answer rather than the prompt */
+.fc-ans-hanzi {
+  font-family: var(--font-zh);
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-text);
+  white-space: nowrap;
 }
 
 .fc-pinyin {
@@ -820,6 +914,11 @@ body.fc-measuring #fcResult { min-height: 4em; }
   color: #7eb8d4;      /* soft blue — matches practice pinyin */
   letter-spacing: 0.03em;
 }
+
+/* Whatever is on the front is left out of the answer */
+.fc-front--hanzi   .fc-ans-hanzi { display: none; }
+.fc-front--pinyin  .fc-pinyin    { display: none; }
+.fc-front--meaning .fc-meaning   { display: none; }
 
 .fc-meaning {
   font-size: 1rem;
@@ -854,10 +953,23 @@ body.fc-measuring #fcResult { min-height: 4em; }
   font-size: 0.8rem;
 }
 
-/* ── Flashcards: verdict ───────────────────────────────────── */
+/* ── Flashcards: verdict ───────────────────────────────────────
+   Reserved like the answer slot: the verdict appears in place instead
+   of pushing Prev/Next down the screen. */
 .fc-result {
+  align-self: stretch;
   text-align: center;
-  animation: fade-in 0.3s ease;
+  /* Measured by fcFit(): verdict line + the two lines "you said" allows */
+  height: var(--fc-result-h, 4.8rem);
+  overflow: hidden;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.fc-result--shown {
+  visibility: visible;
+  opacity: 1;
 }
 
 .fc-verdict {
@@ -873,7 +985,17 @@ body.fc-measuring #fcResult { min-height: 4em; }
   margin-top: 6px;
   font-size: 0.95rem;
   color: var(--color-text-muted);
+  /* Long answers are trimmed rather than growing the reserved slot */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
+
+/* Two lines held for the longest message ("Deck finished — …") so the
+   status line never resizes the screen either. */
+#view-flashcards .status { min-height: 2.4em; }
 
 /* ── Flashcards: navigation ────────────────────────────────── */
 .fc-nav {
@@ -901,8 +1023,12 @@ body.fc-measuring #fcResult { min-height: 4em; }
   #view-flashcards .fc-deck-tabs     { margin-bottom: 10px; }
   #view-flashcards .fc-card          { padding: 22px 16px 16px; gap: 6px; }
   #view-flashcards .fc-done          { top: 7px; right: 10px; }
-  #view-flashcards .fc-hanzi         { font-size: clamp(2.8rem, 20vw, 4.5rem); }
+  /* Fallback only — fcFit() supplies --fc-hanzi once it has measured */
+  #view-flashcards .fc-front--hanzi .fc-prompt {
+    font-size: var(--fc-hanzi, clamp(2.8rem, 20vw, 4.5rem));
+  }
   #view-flashcards .fc-pinyin        { font-size: 1.15rem; }
+  #view-flashcards .fc-ans-hanzi     { font-size: 2rem; }
   #view-flashcards .record-section   { gap: 8px; padding: 0; }
   #view-flashcards .record-btn       { width: 96px; height: 96px; }
   #view-flashcards .record-btn__icon { font-size: 1.7rem; }
@@ -927,6 +1053,182 @@ body.fc-measuring #fcResult { min-height: 4em; }
   #view-flashcards .record-btn__label { font-size: 0.65rem; }
   #view-flashcards .fc-card           { padding: 18px 16px 14px; gap: 6px; }
 }
+
+/* ══ Translation panel ════════════════════════════════════════
+   A floating window rather than more lines in the results card:
+   it opens centred, right over the record button, and closes on
+   the backdrop, the ✕ or Escape. */
+.tx-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.tx-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 10, 25, 0.72);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: fade-in 0.18s ease;
+}
+
+.tx-panel {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  max-height: 80dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 20px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  animation: tx-pop 0.18s ease;
+}
+
+@keyframes tx-pop {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+.tx-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.tx-panel__title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.tx-close {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition);
+}
+
+.tx-close:hover,
+.tx-close:active { background: var(--color-accent); color: #fff; }
+
+.tx-source {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 12px;
+}
+
+.tx-hanzi {
+  font-family: var(--font-zh);
+  font-size: 1.7rem;
+  line-height: 1.4;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.tx-pinyin {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  color: #7eb8d4;
+}
+
+.tx-pinyin:empty { display: none; }
+
+.tx-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tx-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.tx-line__tag {
+  flex: none;
+  min-width: 2.1rem;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-align: center;
+}
+
+.tx-line__tag--pt { color: #9dbf8e; }
+
+.tx-line__text {
+  font-size: 1rem;
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.tx-line__text--pt { color: #cfe0c6; }
+
+/* Placeholder / failure states are dimmed so they read as status */
+.tx-line__text--pending,
+.tx-line__text--failed {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.tx-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tx-retry {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: 10px;
+  padding: 5px 14px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all var(--transition);
+}
+
+.tx-retry:hover,
+.tx-retry:active { border-color: var(--color-accent); color: var(--color-text); }
+
+/* The page behind the panel must not scroll away under it */
+body.tx-open { overflow: hidden; }
 
 /* ── Utility ────────────────────────────────────────────────── */
 [hidden] { display: none !important; }
