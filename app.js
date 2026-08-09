@@ -45,6 +45,9 @@ const pronounceTranscribedBtn = document.getElementById('pronounceTranscribedBtn
 const translateTargetBtn      = document.getElementById('translateTargetBtn');
 const translateTranscribedBtn = document.getElementById('translateTranscribedBtn');
 
+const offlineBar      = document.getElementById('offlineBar');
+const offlineCloseBtn = document.getElementById('offlineCloseBtn');
+
 /* Translation panel (floats over the record button) */
 const txOverlay    = document.getElementById('txOverlay');
 const txBackdrop   = document.getElementById('txBackdrop');
@@ -55,6 +58,59 @@ const txEnglish    = document.getElementById('txEnglish');
 const txPortuguese = document.getElementById('txPortuguese');
 const txSpeakBtn   = document.getElementById('txSpeakBtn');
 const txRetryBtn   = document.getElementById('txRetryBtn');
+
+/* ── Connectivity notice ───────────────────────────────────────
+   Most of this app talks to the network — the recogniser uploads audio,
+   the voice comes from Edge TTS, translations from Google/MyMemory — and
+   each of those used to fail in its own way, or silently.  One banner says
+   it once, up front.
+
+   `navigator.onLine` only reports whether the browser has a network
+   interface, so it's a hint, not proof: it can read "online" behind a
+   captive portal.  The per-feature errors stay as the real backstop.
+
+   Anti-spam, by construction:
+     • every change is compared against the state already on screen, so
+       repeated or duplicate events do nothing at all;
+     • transitions are debounced, and going offline waits longer than
+       coming back, so a flapping connection can't strobe the banner;
+     • it's one fixed element, never a stack of toasts, and dismissing it
+       keeps it down until the connection has actually recovered.
+   ──────────────────────────────────────────────────────────── */
+const OFFLINE_SETTLE_MS = 1500;   // wait this long before believing we dropped
+const ONLINE_SETTLE_MS  = 300;    // …but restore promptly
+
+let connectivityShown = true;     // assume online until told otherwise
+let connectivityTimer = null;
+let offlineDismissed  = false;
+
+function applyConnectivity(online) {
+  if (online === connectivityShown) return;   // nothing actually changed
+  connectivityShown = online;
+
+  document.body.classList.toggle('is-offline', !online);
+  if (online) offlineDismissed = false;       // a fresh drop earns a fresh notice
+  offlineBar.hidden = online || offlineDismissed;
+}
+
+function scheduleConnectivityCheck() {
+  clearTimeout(connectivityTimer);
+  // Re-read navigator.onLine when the timer fires rather than trusting the
+  // event that woke us — by then the connection may have settled the other way.
+  connectivityTimer = setTimeout(
+    () => applyConnectivity(navigator.onLine),
+    navigator.onLine ? ONLINE_SETTLE_MS : OFFLINE_SETTLE_MS);
+}
+
+window.addEventListener('online',  scheduleConnectivityCheck);
+window.addEventListener('offline', scheduleConnectivityCheck);
+
+offlineCloseBtn.addEventListener('click', () => {
+  offlineDismissed = true;
+  offlineBar.hidden = true;   // the dimming stays: we're still offline
+});
+
+applyConnectivity(navigator.onLine);   // the page may have loaded offline
 
 /* ── Speech Recognition ────────────────────────────────────── */
 const SpeechRecognition =
@@ -154,6 +210,13 @@ function beginPress(ctx, ev) {
 
   // Pressing again while a session is running means "stop" (tap-to-toggle).
   if (isRecording || stopping) { stopRecording(); return; }
+
+  // Say why up front instead of opening the mic and letting the recogniser
+  // come back with a bare "network error" a few seconds later.
+  if (!navigator.onLine) {
+    showStatus('⚠️ You\'re offline — recording needs a connection.', ctx.statusEl);
+    return;
+  }
 
   pressActive = true;
   pressStart  = Date.now();
@@ -613,6 +676,15 @@ async function openTranslation(chineseText, { refresh = false } = {}) {
     txOverlay.hidden = false;
     document.body.classList.add('tx-open');
     txCloseBtn.focus();
+  }
+
+  // Anything translated earlier this session is still readable offline;
+  // anything else can't be fetched, so say so rather than spinning.
+  if (!navigator.onLine && !(translationCache.has(text) && !refresh)) {
+    setTxLine(txEnglish,    'Offline — connect to translate',      'failed');
+    setTxLine(txPortuguese, 'Offline — conecte-se para traduzir',  'failed');
+    txRetryBtn.hidden = false;
+    return;
   }
 
   const { en, pt } = await translationFor(text, { refresh });
@@ -1793,7 +1865,8 @@ function fcLoadDeck(key) {
   fcLoadDone();
   fcBuildOrder();
   fcRender();
-  fcScheduleFit();   // the new deck has its own biggest card to size for
+  // No re-fit: the screen is sized from every deck at once, so switching
+  // decks changes the content and nothing else.
 }
 
 function fcRender() {
@@ -1868,28 +1941,28 @@ function fcPromptTextRect() {
   return range.getBoundingClientRect();
 }
 
-/* The deck's most demanding cards: the widest characters, and the handful
-   with the wordiest answers.  Everything the screen reserves is measured
-   from these, so no card in the deck can exceed what's laid aside for it.
-   (Measuring all ~96 cards on every resize would just be waste — the
-   tallest answer is always among the longest.) */
-const fcWorstCaseCache = new Map();
+/* The most demanding cards in *every* deck: the widest characters, and the
+   handful with the wordiest answers.  Measuring across all decks rather
+   than the active one is what keeps Exam 1 and Exam 2 exactly the same
+   shape — sized per deck, Exam 2's longer words and wordier glosses gave
+   it a slightly different card.  (Measuring all ~192 cards on every resize
+   would just be waste — the tallest answer is always among the longest.) */
+let fcWorstCaseCache = null;
 
 function fcWorstCase() {
-  if (!fcWorstCaseCache.has(fcDeckKey)) {
-    const deck = fcDeck();
-    const len  = c => (c.pinyin || '').length + (c.pt || '').length + (c.en || '').length;
-
+  if (!fcWorstCaseCache) {
+    const all = Object.values(FLASHCARD_DECKS).flat();
+    const len = c => (c.pinyin || '').length + (c.pt || '').length + (c.en || '').length;
     const longest = (best, s) => ((s || '').length > best.length ? s : best);
 
-    fcWorstCaseCache.set(fcDeckKey, {
-      hanzi:    deck.reduce((best, c) => longest(best, c.hanzi), ''),
-      pinyin:   deck.reduce((best, c) => longest(best, c.pinyin), ''),
-      meaning:  deck.reduce((best, c) => longest(best, fcMeaningText(c)), ''),
-      wordiest: [...deck].sort((a, b) => len(b) - len(a)).slice(0, 3),
-    });
+    fcWorstCaseCache = {
+      hanzi:    all.reduce((best, c) => longest(best, c.hanzi), ''),
+      pinyin:   all.reduce((best, c) => longest(best, c.pinyin), ''),
+      meaning:  all.reduce((best, c) => longest(best, fcMeaningText(c)), ''),
+      wordiest: [...all].sort((a, b) => len(b) - len(a)).slice(0, 3),
+    };
   }
-  return fcWorstCaseCache.get(fcDeckKey);
+  return fcWorstCaseCache;
 }
 
 /* Sample verdict long enough to fill the two lines the slot allows —

@@ -1054,6 +1054,82 @@ body.fc-measuring .fc-result {
   #view-flashcards .fc-card           { padding: 18px 16px 14px; gap: 6px; }
 }
 
+/* ══ Offline notice ═══════════════════════════════════════════
+   Pinned to the bottom of the viewport rather than placed in the
+   flow: the flashcard view is sized to the pixel, and a banner that
+   pushed it around would undo that. */
+.offline-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 0;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: min(100%, 540px);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--color-surface-alt);
+  border-top: 2px solid var(--color-extra);
+  box-shadow: 0 -6px 22px rgba(0, 0, 0, 0.45);
+  animation: fade-in 0.25s ease;
+}
+
+.offline-bar__dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--color-extra);
+}
+
+.offline-bar__text {
+  flex: 1;
+  font-size: 0.73rem;
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
+.offline-bar__text strong { color: var(--color-extra); }
+
+.offline-bar__close {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--transition), color var(--transition);
+}
+
+.offline-bar__close:hover,
+.offline-bar__close:active { background: var(--color-surface); color: var(--color-text); }
+
+/* Keep the bar clear of the page's own content in the scrolling practice
+   view.  Never in the flashcard view: that screen is measured to the pixel,
+   and fcFit() drops .fc-fit while it measures, so any padding tied to the
+   connection would feed straight back into the character size.  There the
+   bar just covers the footer. */
+body.is-offline:not(.is-flashcards) .app { padding-bottom: 84px; }
+
+/* What needs a connection reads as unavailable while there isn't one */
+body.is-offline .record-btn {
+  opacity: 0.5;
+  box-shadow: none;
+}
+
+body.is-offline .btn-translate,
+body.is-offline .btn-convert--translate { opacity: 0.5; }
+
 /* ══ Translation panel ════════════════════════════════════════
    A floating window rather than more lines in the results card:
    it opens centred, right over the record button, and closes on

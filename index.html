@@ -266,11 +266,24 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v2.8.0 &nbsp;·&nbsp; Web Speech API</p>
+      <p>v2.9.0 &nbsp;·&nbsp; Web Speech API</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 
   </div><!-- /app -->
+
+  <!-- ── Offline notice ─────────────────────────────────────────
+       Fixed to the viewport, and outside .app, so showing it can never
+       resize the flashcard behind it. -->
+  <div class="offline-bar" id="offlineBar" role="status" aria-live="polite" hidden>
+    <span class="offline-bar__dot" aria-hidden="true"></span>
+    <p class="offline-bar__text">
+      <strong>You're offline.</strong>
+      Flashcards still work — recording, translation and pronunciation need a connection.
+    </p>
+    <button class="offline-bar__close" id="offlineCloseBtn"
+            aria-label="Dismiss offline notice">&#x2715;</button>
+  </div>
 
   <!-- ── Translation panel ──────────────────────────────────────
        Floats over the record button instead of stacking more lines
