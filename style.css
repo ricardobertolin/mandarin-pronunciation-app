@@ -1018,6 +1018,10 @@ body.fc-measuring .fc-result {
   .view    { gap: 14px; }
   .footer  { padding: 12px 0 6px; }
 
+  /* Three tabs across a phone: they must not wrap or clip */
+  .tabs { gap: 6px; }
+  .tab  { height: 42px; padding: 0 4px; gap: 4px; font-size: 0.72rem; letter-spacing: 0; }
+
   /* Flashcards fit the viewport without scrolling */
   #view-flashcards .fc-deck-select   { padding: 12px 14px; }
   #view-flashcards .fc-deck-tabs     { margin-bottom: 10px; }
@@ -1038,16 +1042,27 @@ body.fc-measuring .fc-result {
   #view-flashcards .fc-nav .btn-secondary { padding: 10px; }
 }
 
+/* Narrow phones (iPhone SE and below): "🀄 Flashcards" is the widest
+   label, and it is what decides whether the row still fits. */
+@media (max-width: 380px) {
+  .tab { font-size: 0.65rem; }
+}
+
 /* ── Short viewports: trim the chrome before shrinking the character ──
    Landscape phones and small laptop windows. Gives fcFit() more room to
    work with, so the character stays readable instead of being squeezed. */
 @media (max-height: 880px) {
-  .is-flashcards .header    { padding: 14px 0 8px; }
-  .is-flashcards .header__zh{ font-size: 1.9rem; }
-  .is-flashcards .header__en{ font-size: 0.7rem; }
-  .is-flashcards .main      { gap: 12px; }
-  .is-flashcards .view      { gap: 12px; }
-  .is-flashcards .footer    { padding: 10px 0 4px; }
+  .is-flashcards .header,     .is-listening .header    { padding: 14px 0 8px; }
+  .is-flashcards .header__zh, .is-listening .header__zh{ font-size: 1.9rem; }
+  .is-flashcards .header__en, .is-listening .header__en{ font-size: 0.7rem; }
+  .is-flashcards .main,       .is-listening .main      { gap: 12px; }
+  .is-flashcards .view,       .is-listening .view      { gap: 12px; }
+  .is-flashcards .footer,     .is-listening .footer    { padding: 10px 0 4px; }
+  /* The listening card is the tallest thing in the app; give it the room */
+  .is-listening .ls-card     { padding: 14px 14px 12px; gap: 10px; }
+  .is-listening .ls-play     { width: 88px; height: 88px; }
+  .is-listening .ls-play__icon { font-size: 1.6rem; }
+  .is-listening .ls-tile     { padding: 6px 11px; font-size: 1.1rem; }
   #view-flashcards .record-btn        { width: 96px; height: 96px; }
   #view-flashcards .record-btn__icon  { font-size: 1.7rem; }
   #view-flashcards .record-btn__label { font-size: 0.65rem; }
@@ -1305,6 +1320,299 @@ body.is-offline .btn-convert--translate { opacity: 0.5; }
 
 /* The page behind the panel must not scroll away under it */
 body.tx-open { overflow: hidden; }
+
+/* ══ Listening drill ══════════════════════════════════════════
+   Unlike the flashcard view this one is allowed to scroll: the tile
+   rows grow with the phrase, and pinning them to the fold would mean
+   shrinking the words you are meant to be reading. */
+.ls-scope {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.ls-scope__btn {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 6px;
+  border: 1.5px solid var(--color-border);
+  border-radius: 99px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-family: var(--font-ui);
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all var(--transition);
+}
+
+.ls-scope__btn--active {
+  background: var(--color-surface-alt);
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.ls-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 18px 20px;
+}
+
+/* ── Play button ───────────────────────────────────────────── */
+.ls-play {
+  -webkit-appearance: none;
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 108px;
+  height: 108px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #fff;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 6px 20px rgba(192, 57, 43, 0.35);
+  transition: transform var(--transition), background var(--transition);
+}
+
+.ls-play:active { transform: scale(0.95); background: var(--color-accent-dark); }
+.ls-play:disabled { opacity: 0.45; box-shadow: none; cursor: default; }
+
+.ls-play__icon  { font-size: 2rem; line-height: 1; }
+.ls-play__label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* speak() marks the active button; the blue reads as "now playing",
+   and doubles as the affordance for tapping it again to stop. */
+.ls-play.btn-pronounce--speaking {
+  background: #2980b9;
+  box-shadow: 0 6px 20px rgba(41, 128, 185, 0.35);
+}
+
+/* Two lines held, because the hint changes wording once the phrase
+   has been answered and the two messages wrap differently. */
+.ls-hint {
+  margin: 0;
+  height: 2.4em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+/* ── Word tiles ────────────────────────────────────────────── */
+.ls-answer,
+.ls-bank {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: center;
+  gap: 8px;
+  align-self: stretch;
+}
+
+/* Both rows are sized by lsFit() to the worst case across every deck,
+   so a tile moving from one to the other changes nothing else on the
+   screen — and exam 1 and exam 2 get the identical layout. */
+.ls-answer {
+  height: var(--ls-answer-h, 56px);
+  overflow: hidden;
+  padding: 6px;
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--radius-input);
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.ls-stage {
+  align-self: stretch;
+  height: var(--ls-stage-h, 150px);
+  overflow: hidden;
+}
+
+.ls-stage > * { height: 100%; }
+
+.ls-answer--empty::before {
+  content: 'Tap the words below';
+  font-family: var(--font-ui);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.ls-tile {
+  -webkit-appearance: none;
+  appearance: none;
+  padding: 8px 14px;
+  border: 1.5px solid var(--color-surface-alt);
+  border-radius: 10px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  font-family: var(--font-zh);
+  font-size: 1.35rem;
+  line-height: 1.2;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: all var(--transition);
+}
+
+.ls-tile:active { transform: scale(0.94); border-color: var(--color-accent); }
+.ls-tile:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+.ls-answer .ls-tile { border-color: var(--color-accent); }
+
+.ls-actions {
+  display: flex;
+  gap: 10px;
+  align-self: stretch;
+}
+
+.ls-actions .btn-secondary { flex: 1; text-transform: none; }
+
+/* Check is the *primary* action and has to look like it.  Two identical
+   outlined buttons meant a student who had just placed their answer
+   pressed whichever read as "submit" — and "Reveal" reads that way, which
+   scored their correct answer as a giveaway. */
+.ls-check:not(:disabled) {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.ls-check:disabled {
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Deliberately quiet: this is the "I give up" door, not a second submit */
+.ls-reveal {
+  flex: 0 1 auto;
+  border-color: var(--color-border);
+  color: var(--color-text-muted);
+}
+
+/* The lone button once the phrase is answered */
+.ls-next { border-color: var(--color-accent); color: var(--color-accent); }
+
+/* ── Result ────────────────────────────────────────────────── */
+/* Fades without the 8px rise of `fade-in`: the slot is exactly as tall as
+   the content, so a rise would clip the last line on the way in. */
+.ls-result {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  overflow: hidden;
+  animation: ls-appear 0.22s ease;
+}
+
+@keyframes ls-appear {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.ls-verdict {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+}
+
+.ls-verdict--good { color: var(--color-correct); }
+.ls-verdict--bad  { color: var(--color-wrong); }
+
+/* Every line of the result is clamped, which is what makes the slot's
+   height a fixed number rather than a function of the phrase. */
+.ls-zh,
+.ls-py,
+.ls-gloss__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+.ls-zh {
+  margin-top: 10px;
+  font-family: var(--font-zh);
+  font-size: 1.6rem;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ls-py {
+  margin-top: 2px;
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.ls-gloss {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  text-align: left;
+}
+
+.ls-gloss__tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--color-surface-alt);
+  color: var(--color-text-muted);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.ls-gloss__tag--pt { background: var(--color-extra); color: #fff; }
+
+.ls-gloss__text { font-size: 0.95rem; line-height: 1.45; text-align: left; }
+
+/* Two lines held for the longest message, so the status line can't
+   resize the card either. */
+#view-listening .status { min-height: 2.4em; }
+
+/* While lsFit() measures, the slots size to their content instead of to
+   the variables it is about to write. */
+.ls-measuring .ls-answer,
+.ls-measuring .ls-stage { height: auto; }
+.ls-measuring .ls-stage > * { height: auto; }
+
+/* Offline, playback is the one thing that may not work */
+body.is-offline .ls-play { opacity: 0.5; box-shadow: none; }
+
+@media (max-width: 600px) {
+  .ls-card      { padding: 18px 14px 16px; gap: 12px; }
+  .ls-play      { width: 96px; height: 96px; }
+  .ls-play__icon{ font-size: 1.7rem; }
+  .ls-tile      { padding: 7px 12px; font-size: 1.2rem; }
+  .ls-zh        { font-size: 1.4rem; }
+}
 
 /* ── Utility ────────────────────────────────────────────────── */
 [hidden] { display: none !important; }

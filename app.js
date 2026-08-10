@@ -990,7 +990,7 @@ function escapeXml(str) {
   }[c]));
 }
 
-function edgeTTSRequest(text) {
+function edgeTTSRequest(text, rate = EDGE_TTS_RATE) {
   return new Promise((resolve, reject) => {
     const connId = makeUUID().replace(/-/g, '');
     const url    = `${EDGE_TTS_WS}?TrustedClientToken=${EDGE_TTS_TOKEN}&ConnectionId=${connId}`;
@@ -1016,7 +1016,7 @@ function edgeTTSRequest(text) {
       const ssml  =
         `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='zh-CN'>` +
         `<voice name='${EDGE_TTS_VOICE}'>` +
-        `<prosody rate='${EDGE_TTS_RATE}'>${escapeXml(text)}</prosody>` +
+        `<prosody rate='${rate}'>${escapeXml(text)}</prosody>` +
         `</voice></speak>`;
 
       ws.send(
@@ -1048,7 +1048,9 @@ function edgeTTSRequest(text) {
   });
 }
 
-async function speak(text, btn) {
+/* `rate` is an Edge TTS percentage ("-25%", "-50%"); the Web Speech
+   fallback takes the same figure as a multiplier. */
+async function speak(text, btn, rate = EDGE_TTS_RATE) {
   if (!text.trim()) return;
 
   // A second click on the active button acts as a stop button
@@ -1062,7 +1064,7 @@ async function speak(text, btn) {
   const gen = speakGeneration;
 
   try {
-    const blob = await edgeTTSRequest(text);
+    const blob = await edgeTTSRequest(text, rate);
     if (gen !== speakGeneration) return;   // superseded / stopped meanwhile
 
     const url   = URL.createObjectURL(blob);
@@ -1080,16 +1082,16 @@ async function speak(text, btn) {
     if (gen !== speakGeneration) return;
     console.warn('[EdgeTTS] Failed, falling back to Web Speech:', err);
     stopCurrentAudio();
-    speakWebSpeech(text, btn);
+    speakWebSpeech(text, btn, rate);
   }
 }
 
-function speakWebSpeech(text, btn) {
+function speakWebSpeech(text, btn, rate = EDGE_TTS_RATE) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.lang  = 'zh-CN';
-  utterance.rate  = 0.75;
+  utterance.rate  = 1 + (parseInt(rate, 10) || 0) / 100;   // "-25%" → 0.75
   btn?.classList.add('btn-pronounce--speaking');
   currentSpeakBtn = btn;
   utterance.onend = utterance.onerror = () => {
@@ -1708,9 +1710,12 @@ translateInputBtn.addEventListener('click', async () => {
 /* ============================================================
    Mode Tabs  —  Practice  ⇄  Flashcards
    ============================================================ */
-const tabButtons   = document.querySelectorAll('.tab');
-const viewPractice = document.getElementById('view-practice');
-const viewFlash    = document.getElementById('view-flashcards');
+const tabButtons = document.querySelectorAll('.tab');
+const VIEWS = {
+  practice:   document.getElementById('view-practice'),
+  flashcards: document.getElementById('view-flashcards'),
+  listening:  document.getElementById('view-listening'),
+};
 
 function switchView(view) {
   // Stop any active recording / audio before leaving the current view
@@ -1722,13 +1727,17 @@ function switchView(view) {
     btn.classList.toggle('tab--active', on);
     btn.setAttribute('aria-selected', on ? 'true' : 'false');
   });
-  viewPractice.hidden = view !== 'practice';
-  viewFlash.hidden    = view !== 'flashcards';
+  Object.entries(VIEWS).forEach(([key, el]) => { el.hidden = key !== view; });
   // Lets the stylesheet trim the shared header/footer on short screens for
-  // the flashcard view only — the practice view keeps its normal spacing.
+  // the flashcard view only — the other views keep their normal spacing.
   document.body.classList.toggle('is-flashcards', view === 'flashcards');
+  document.body.classList.toggle('is-listening',  view === 'listening');
 
   if (view === 'flashcards' && !fcInitialized) fcInit();
+  if (view === 'listening') {
+    if (!lsInitialized) lsInit();
+    else lsScheduleFit();   // the window may have been resized while away
+  }
   fcScheduleFit();   // sizes the card on entry, releases the lock on exit
 }
 
@@ -2010,7 +2019,7 @@ function fcLargestFitting(lo, hi, step, apply) {
 }
 
 function fcFit() {
-  if (viewFlash.hidden) {
+  if (VIEWS.flashcards.hidden) {
     document.body.classList.remove('fc-fit');
     fcRoot.style.removeProperty('--fc-zoom');
     return;
@@ -2265,3 +2274,404 @@ wireRecordButton(flashcardRec);
 ['resize', 'orientationchange', 'load'].forEach(evt =>
   window.addEventListener(evt, fcScheduleFit)
 );
+
+
+/* ============================================================
+   Listening  —  hear a phrase, rebuild it
+   ============================================================
+   The phrase itself comes from phrases.js, which assembles it from
+   the chosen deck's own vocabulary using written-out grammar
+   templates.  Nothing here is pre-scripted and nothing is generated
+   by a model, so the drill works with the vocabulary the student
+   actually has — and its Portuguese and English are exact rather
+   than fetched.
+
+   Grading is by reconstruction: the phrase's words are offered as
+   tiles, shuffled and salted with a few decoys, and the student taps
+   them in the order they heard.  That is checkable to the character
+   without a microphone, and it makes the student parse the sentence
+   rather than recognise its shape.
+   ============================================================ */
+const lsScopeBtns = document.querySelectorAll('.ls-scope__btn');
+const lsCard      = document.getElementById('lsCard');
+const lsStage     = document.getElementById('lsStage');
+const lsScoreEl   = document.getElementById('lsScore');
+const lsSlowBtn   = document.getElementById('lsSlowBtn');
+const lsSkipBtn   = document.getElementById('lsSkipBtn');
+const lsPlayBtn   = document.getElementById('lsPlayBtn');
+const lsPlayLabel = document.getElementById('lsPlayLabel');
+const lsHint      = document.getElementById('lsHint');
+const lsAnswer    = document.getElementById('lsAnswer');
+const lsBank      = document.getElementById('lsBank');
+const lsCheckBtn  = document.getElementById('lsCheckBtn');
+const lsRevealBtn = document.getElementById('lsRevealBtn');
+const lsResult    = document.getElementById('lsResult');
+const lsVerdict   = document.getElementById('lsVerdict');
+const lsZh        = document.getElementById('lsZh');
+const lsPy        = document.getElementById('lsPy');
+const lsPt        = document.getElementById('lsPt');
+const lsEn        = document.getElementById('lsEn');
+const lsStatus    = document.getElementById('lsStatus');
+const lsNextBtn   = document.getElementById('lsNextBtn');
+
+/* The 🐢 toggle, as an Edge TTS percentage.  Normal delivery is already
+   -25%, so this is roughly half of that again — slow enough to separate
+   the syllables of a compound like 洗衣机 rather than merely unhurried. */
+const LS_SLOW_RATE = '-65%';
+const LS_PREF_KEY  = 'mpp.ls.prefs';
+
+/* Kept together so the fit can reserve room for the longest of them —
+   "not scored" says out loud why the counter didn't move, which is the
+   part that looks broken when you've read the answer rather than tried. */
+const LS_VERDICTS = {
+  shown: '答案 · Answer (not scored)',
+  sound: '✓ 同音 · Correct — same sound',
+  right: '✓ 对了 · Correct!',
+  wrong: '✗ 不对 · Not quite',
+};
+
+let lsInitialized = false;
+let lsScope   = 'prova1';
+let lsSlow    = false;
+let lsPhrase  = null;   // the phrase being drilled, from buildListeningPhrase
+let lsTiles   = [];     // { id, w } — the phrase's words plus decoys, shuffled
+let lsPlaced  = [];     // tile ids, in the order the student tapped them
+let lsDone    = false;  // answered or revealed: the tiles are frozen
+let lsAsked   = 0;
+let lsRight   = 0;
+
+/* Scope and speed are worth remembering between sessions; the score is
+   not — it is a measure of this sitting.  The scope is checked against
+   the buttons actually on screen, so a preference saved before "Exam 1 +
+   2" was folded into "Exam 2" resolves to a button that still exists. */
+const lsScopeExists = key => [...lsScopeBtns].some(b => b.dataset.scope === key);
+
+function lsLoadPrefs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_PREF_KEY)) || {};
+    if (lsScopeExists(saved.scope)) lsScope = saved.scope;
+    else if (saved.scope === 'both') lsScope = 'prova2';   // retired button
+    lsSlow = !!saved.slow;
+  } catch { /* corrupt entry — keep the defaults */ }
+}
+
+function lsSavePrefs() {
+  try { localStorage.setItem(LS_PREF_KEY, JSON.stringify({ scope: lsScope, slow: lsSlow })); }
+  catch { /* private browsing — the preference just doesn't persist */ }
+}
+
+function lsApplyScope() {
+  lsScopeBtns.forEach(btn => {
+    const on = btn.dataset.scope === lsScope;
+    btn.classList.toggle('ls-scope__btn--active', on);
+    btn.setAttribute('aria-selected', on ? 'true' : 'false');
+  });
+}
+
+function lsApplySlow() {
+  lsSlowBtn.classList.toggle('fc-shuffle--on', lsSlow);
+  lsSlowBtn.setAttribute('aria-pressed', String(lsSlow));
+}
+
+function lsUpdateScore() {
+  lsScoreEl.textContent = lsAsked
+    ? `${lsRight} / ${lsAsked} correct`
+    : '0 correct';
+}
+
+function lsInit() {
+  lsInitialized = true;
+  lsLoadPrefs();
+  lsApplyScope();
+  lsApplySlow();
+  lsNewPhrase({ autoplay: false });   // a first tap should be the student's
+  lsFit();   // before the first paint, so nothing is seen to resize
+}
+
+/* ── Building the tile row ─────────────────────────────────── */
+
+function lsTileButton(tile, placed) {
+  const btn = document.createElement('button');
+  btn.type        = 'button';
+  btn.className   = 'ls-tile';
+  btn.textContent = tile.w;
+  btn.lang        = 'zh-CN';
+  btn.disabled    = lsDone;
+  btn.dataset.id  = tile.id;
+  btn.setAttribute('aria-label',
+    placed ? `${tile.w} — tap to take it back` : `${tile.w} — tap to add it`);
+  return btn;
+}
+
+function lsRenderTiles() {
+  const placed = new Set(lsPlaced);
+
+  lsAnswer.replaceChildren(...lsPlaced.map(id => {
+    const tile = lsTiles.find(t => t.id === id);
+    const btn  = lsTileButton(tile, true);
+    btn.addEventListener('click', () => {
+      lsPlaced = lsPlaced.filter(x => x !== id);
+      lsRenderTiles();
+    });
+    return btn;
+  }));
+
+  lsBank.replaceChildren(...lsTiles.filter(t => !placed.has(t.id)).map(tile => {
+    const btn = lsTileButton(tile, false);
+    btn.addEventListener('click', () => {
+      lsPlaced.push(tile.id);
+      lsRenderTiles();
+    });
+    return btn;
+  }));
+
+  // The answer slot keeps its height whether or not anything is in it
+  lsAnswer.classList.toggle('ls-answer--empty', lsPlaced.length === 0);
+  lsCheckBtn.disabled = lsDone || lsPlaced.length !== lsPhrase?.tokens.length;
+}
+
+/* ── A new phrase ──────────────────────────────────────────── */
+
+function lsNewPhrase({ autoplay = true } = {}) {
+  stopCurrentAudio();
+
+  const built = buildListeningPhrase(lsScope, lsPhrase?.id);
+  if (!built) {
+    // Only reachable if a deck were edited down to almost nothing
+    lsPhrase = null;
+    lsAnswer.replaceChildren();
+    lsBank.replaceChildren();
+    lsPlayBtn.disabled = lsCheckBtn.disabled = lsRevealBtn.disabled = true;
+    showStatus('No phrase can be built from this vocabulary.', lsStatus);
+    return;
+  }
+
+  lsPhrase = built;
+  lsDone   = false;
+  lsPlaced = [];
+
+  // Ids rather than the words themselves: a phrase may use the same word
+  // twice, and each tile still has to be its own button.
+  lsTiles = [...built.tokens, ...built.decoys]
+    .map((w, i) => ({ id: i, w }))
+    .sort(() => Math.random() - 0.5);
+
+  lsPlayBtn.disabled = lsRevealBtn.disabled = false;
+  lsBank.hidden   = false;    // the two share one fixed-height slot
+  lsResult.hidden = true;
+  lsCheckBtn.hidden = lsRevealBtn.hidden = false;
+  lsNextBtn.hidden  = true;   // nothing to move on from yet
+  lsVerdict.className = 'ls-verdict';
+  lsHint.textContent = 'Tap the words in the order you heard them.';
+  showStatus('', lsStatus);
+  lsRenderTiles();
+
+  if (autoplay) lsSpeak();
+}
+
+function lsSpeak() {
+  if (!lsPhrase) return;
+  if (!navigator.onLine) {
+    showStatus("You're offline — playback may not work.", lsStatus);
+  }
+  speak(lsPhrase.text, lsPlayBtn, lsSlow ? LS_SLOW_RATE : EDGE_TTS_RATE);
+}
+
+/* ── Answering ─────────────────────────────────────────────── */
+
+/* Reveal everything and freeze the tiles.  `ok` is null when the student
+   gave up rather than answered, which is not counted either way.
+   `bySound` marks an answer that was right to the ear but written with a
+   homophone — worth saying, since the revealed phrase will differ from
+   what they built and that would otherwise look like a mistake. */
+function lsFinish(ok, bySound = false) {
+  lsDone = true;
+  // The bank is spent; the result takes over its slot rather than being
+  // added under the buttons, which would push them down the screen.
+  lsBank.hidden   = true;
+  lsResult.hidden = false;
+  lsZh.textContent = lsPhrase.text;
+  lsPy.textContent = lsPhrase.pinyin;
+  lsPt.textContent = lsPhrase.pt;
+  lsEn.textContent = lsPhrase.en;
+
+  lsVerdict.textContent = ok === null ? LS_VERDICTS.shown
+                        : bySound     ? LS_VERDICTS.sound
+                        : ok          ? LS_VERDICTS.right
+                        :               LS_VERDICTS.wrong;
+  lsVerdict.classList.toggle('ls-verdict--good', ok === true);
+  lsVerdict.classList.toggle('ls-verdict--bad',  ok === false);
+
+  lsHint.textContent = 'Play it once more now that you can see it.';
+  lsRenderTiles();          // repaints the tiles as disabled
+  lsCheckBtn.hidden = lsRevealBtn.hidden = true;
+  lsNextBtn.hidden  = false;
+  lsNextBtn.focus({ preventScroll: true });
+}
+
+/* Judged by sound, not by spelling.  This is a listening drill: if what
+   the student built is pronounced exactly like the phrase, they heard it
+   correctly, and marking 她 wrong for a 他 they cannot possibly have
+   distinguished would be punishing them for having ears. */
+function lsCheck() {
+  if (!lsPhrase || lsDone) return;
+
+  const said  = lsPlaced.map(id => lsTiles.find(t => t.id === id).w);
+  const exact = said.join('') === lsPhrase.tokens.join('');
+  const ok    = exact ||
+    listenSoundOf(said, lsScope) === listenSoundOf(lsPhrase.tokens, lsScope);
+
+  lsAsked++;
+  if (ok) lsRight++;
+  lsUpdateScore();
+  lsFinish(ok, ok && !exact);
+}
+
+/* ── Holding the layout still ──────────────────────────────────
+   Same idea as the flashcard fit, and for the same reason: the two
+   tile rows and the result all vary with the phrase, and if they set
+   their own height then placing a word, revealing an answer or moving
+   to a longer phrase would shift the buttons under the reader's thumb.
+
+   So each gets a slot measured once per viewport against the worst
+   case, and the worst case is drawn from *every* deck rather than the
+   selected one — the same choice that made exam 1 and exam 2 identical
+   in the flashcard view. */
+
+/* The most demanding phrase the generator can actually produce, found by
+   sampling it — the widest tile row, the longest answer row, and the
+   longest of each line of the result.  Sampling real output rather than
+   filling the slots with synthetic text matters: filler always fills
+   every line the clamps allow, which reserves a third of the screen for
+   phrases that never happen.  The clamps stay as a backstop for anything
+   the sample missed.  Cached; only re-read on a resize. */
+let lsWorstCache = null;
+
+function lsWorstCase() {
+  if (!lsWorstCache) {
+    const width  = words => words.join('').length + words.length;   // chars + padding
+    const longer = (best, s) => (s.length > best.length ? s : best);
+    const worst  = { tiles: [], answer: [], text: '', pinyin: '', pt: '', en: '' };
+
+    // Seeded, so the card is the same height every time the app is opened
+    // rather than a few pixels different depending on what got drawn.
+    withSeededPhrases(0x5A11AD, () => {
+      for (let i = 0; i < 600; i++) {
+        const p = buildListeningPhrase('both');
+        if (!p) continue;
+        const all = [...p.tokens, ...p.decoys];
+        if (width(all) > width(worst.tiles))        worst.tiles  = all;
+        if (width(p.tokens) > width(worst.answer))  worst.answer = p.tokens;
+        worst.text   = longer(worst.text,   p.text);
+        worst.pinyin = longer(worst.pinyin, p.pinyin);
+        worst.pt     = longer(worst.pt,     p.pt);
+        worst.en     = longer(worst.en,     p.en);
+      }
+    });
+    lsWorstCache = worst;
+  }
+  return lsWorstCache;
+}
+
+/* Heights are fractional, and offsetHeight rounds — reserving 177px for
+   something that is really 178.4px tall clips it by two. getBoundingClientRect
+   keeps the fraction; rounding it up is what makes the reserve a true
+   upper bound. */
+const lsHeightOf = el => Math.ceil(el.getBoundingClientRect().height);
+
+/* Height of `el` when filled with `words` instead of what's in it */
+function lsMeasureTiles(el, words) {
+  const shown = [...el.children];
+  el.replaceChildren(...words.map(w => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'ls-tile';
+    tile.textContent = w;
+    return tile;
+  }));
+  const height = lsHeightOf(el);
+  el.replaceChildren(...shown);
+  return height;
+}
+
+function lsFit() {
+  if (!lsInitialized || VIEWS.listening.hidden) return;
+
+  const worst = lsWorstCase();
+  const shown = {
+    bank:    lsBank.hidden,     result: lsResult.hidden,
+    verdict: lsVerdict.textContent, zh: lsZh.textContent,
+    py:      lsPy.textContent,  pt: lsPt.textContent, en: lsEn.textContent,
+  };
+
+  // Everything below happens inside one frame, so none of it is painted.
+  lsCard.classList.add('ls-measuring');
+
+  const answerH = lsMeasureTiles(lsAnswer, worst.answer);
+
+  lsBank.hidden = false;
+  lsResult.hidden = true;
+  const bankH = lsMeasureTiles(lsBank, worst.tiles);
+
+  lsBank.hidden = true;
+  lsResult.hidden = false;
+  lsVerdict.textContent =
+    Object.values(LS_VERDICTS).reduce((a, b) => (b.length > a.length ? b : a));
+  lsZh.textContent = worst.text;
+  lsPy.textContent = worst.pinyin;
+  lsPt.textContent = worst.pt;
+  lsEn.textContent = worst.en;
+  const resultH = lsHeightOf(lsResult);
+
+  // Put back exactly what was on screen before
+  lsVerdict.textContent = shown.verdict;
+  lsZh.textContent = shown.zh;
+  lsPy.textContent = shown.py;
+  lsPt.textContent = shown.pt;
+  lsEn.textContent = shown.en;
+  lsBank.hidden   = shown.bank;
+  lsResult.hidden = shown.result;
+  lsCard.classList.remove('ls-measuring');
+
+  // 1px of slack: sub-pixel layout can land just over a whole-pixel reserve,
+  // and a hair of unused space is invisible where a clipped line is not.
+  fcRoot.style.setProperty('--ls-answer-h', `${answerH + 1}px`);
+  fcRoot.style.setProperty('--ls-stage-h',  `${Math.max(bankH, resultH) + 1}px`);
+}
+
+let lsFitQueued = false;
+
+function lsScheduleFit() {
+  if (lsFitQueued) return;
+  lsFitQueued = true;
+  requestAnimationFrame(() => { lsFitQueued = false; lsFit(); });
+}
+
+['resize', 'orientationchange', 'load'].forEach(evt =>
+  window.addEventListener(evt, lsScheduleFit)
+);
+
+/* ── Wiring ────────────────────────────────────────────────── */
+
+lsScopeBtns.forEach(btn => btn.addEventListener('click', () => {
+  if (btn.dataset.scope === lsScope) return;
+  lsScope = btn.dataset.scope;
+  lsApplyScope();
+  lsSavePrefs();
+  lsNewPhrase({ autoplay: false });   // different vocabulary, fresh phrase
+}));
+
+lsSlowBtn.addEventListener('click', () => {
+  lsSlow = !lsSlow;
+  lsApplySlow();
+  lsSavePrefs();
+  lsSpeak();          // hearing the difference immediately is the point
+});
+
+lsPlayBtn.addEventListener('click', lsSpeak);
+lsCheckBtn.addEventListener('click', lsCheck);
+lsRevealBtn.addEventListener('click', () => { if (!lsDone) lsFinish(null); });
+lsNextBtn.addEventListener('click', () => lsNewPhrase());
+/* Skipping doesn't count against the score — it is for a phrase the
+   student would rather not spend time on, not a wrong answer. */
+lsSkipBtn.addEventListener('click', () => lsNewPhrase({ autoplay: false }));

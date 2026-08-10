@@ -152,6 +152,12 @@ const FLASHCARD_DECKS = {
       "en": "two"
     },
     {
+      "hanzi": "两",
+      "pinyin": "Liǎng",
+      "pt": "dois (antes de classificador)",
+      "en": "two (before a measure word)"
+    },
+    {
       "hanzi": "三",
       "pinyin": "Sān",
       "pt": "três",
@@ -1124,6 +1130,42 @@ const FLASHCARD_DECKS = {
       "pinyin": "Gōngchéngshī",
       "pt": "engenheiro",
       "en": "engineer"
+    },
+    {
+      "hanzi": "医生",
+      "pinyin": "Yīshēng",
+      "pt": "médico",
+      "en": "doctor"
+    },
+    {
+      "hanzi": "商人",
+      "pinyin": "Shāngrén",
+      "pt": "vendedor",
+      "en": "merchant / businessperson"
+    },
+    {
+      "hanzi": "职员",
+      "pinyin": "Zhíyuán",
+      "pt": "trabalhador de escritório",
+      "en": "office worker"
+    },
+    {
+      "hanzi": "律师",
+      "pinyin": "Lǜshī",
+      "pt": "advogado",
+      "en": "lawyer"
+    },
+    {
+      "hanzi": "司机",
+      "pinyin": "Sījī",
+      "pt": "motorista",
+      "en": "driver"
+    },
+    {
+      "hanzi": "工人",
+      "pinyin": "Gōngrén",
+      "pt": "trabalhador",
+      "en": "worker"
     },
     {
       "hanzi": "市政府",
