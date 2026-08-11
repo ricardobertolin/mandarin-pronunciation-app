@@ -1,4 +1,7 @@
-/* Auto-generated vocabulary decks from revisao_prova1_r.docx & revisao_prova2_r.docx */
+/* Auto-generated vocabulary decks from revisao_prova1_r.docx & revisao_prova2_r.docx
+   Added by hand afterwards, and so lost if this file is regenerated:
+   很多 and 非常 in prova2 — neither is on the revision sheet, but the exam 2
+   listening recordings use both throughout (这间医院有很多非常好的医生). */
 const FLASHCARD_DECKS = {
   "prova1": [
     {
@@ -1052,6 +1055,18 @@ const FLASHCARD_DECKS = {
       "pinyin": "Tài",
       "pt": "muito, excessivamente",
       "en": "too, excessively"
+    },
+    {
+      "hanzi": "很多",
+      "pinyin": "Hěn duō",
+      "pt": "muitos / muitas",
+      "en": "many / a lot of"
+    },
+    {
+      "hanzi": "非常",
+      "pinyin": "Fēicháng",
+      "pt": "extremamente",
+      "en": "extremely"
     },
     {
       "hanzi": "学习",

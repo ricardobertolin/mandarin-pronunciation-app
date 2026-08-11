@@ -49,6 +49,33 @@ function ptVerb(inf, n) {
   return inf.slice(0, -2) + endings[i];
 }
 
+/* ── Portuguese: pretérito perfeito ────────────────────────────
+   Only 过 needs it — 我去过日本 is "eu já fui ao Japão", and there is no
+   way to say that in the present. */
+const PT_PAST_ENDINGS = {
+  ar: ['ei', 'ou', 'amos', 'aram'],
+  er: ['i',  'eu', 'emos', 'eram'],
+  ir: ['i',  'iu', 'imos', 'iram'],
+};
+const PT_PAST_IRREGULAR = {
+  ser:   ['fui',    'foi',    'fomos',     'foram'],
+  ir:    ['fui',    'foi',    'fomos',     'foram'],
+  estar: ['estive', 'esteve', 'estivemos', 'estiveram'],
+  ter:   ['tive',   'teve',   'tivemos',   'tiveram'],
+  ver:   ['vi',     'viu',    'vimos',     'viram'],
+  fazer: ['fiz',    'fez',    'fizemos',   'fizeram'],
+  poder: ['pude',   'pôde',   'pudemos',   'puderam'],
+  saber: ['soube',  'soube',  'soubemos',  'souberam'],
+  querer:['quis',   'quis',   'quisemos',  'quiseram'],
+};
+
+function ptPast(inf, n) {
+  const i = PT_PERSON[n] ?? 1;
+  if (PT_PAST_IRREGULAR[inf]) return PT_PAST_IRREGULAR[inf][i];
+  const endings = PT_PAST_ENDINGS[inf.slice(-2)] || PT_PAST_ENDINGS.ar;
+  return inf.slice(0, -2) + endings[i];
+}
+
 /* ── English: only the third person singular inflects ────────── */
 const EN_3SG = { have: 'has', be: 'is', do: 'does', go: 'goes', study: 'studies' };
 
@@ -60,6 +87,21 @@ function enVerb(base, n3) {
   return base + 's';
 }
 
+/* 过 in English is the present perfect: "have"/"has" + past participle */
+const EN_PARTICIPLE = {
+  be: 'been', go: 'been', see: 'seen', eat: 'eaten', drink: 'drunk',
+  buy: 'bought', speak: 'spoken', have: 'had', do: 'done',
+};
+
+function enPart(base) {
+  if (EN_PARTICIPLE[base]) return EN_PARTICIPLE[base];
+  if (/e$/.test(base))               return base + 'd';            // use → used
+  if (/[^aeiou]y$/.test(base))       return base.slice(0, -1) + 'ied';
+  return base + 'ed';                                              // watch → watched
+}
+
+const enHave = s => (s.n3 ? 'has' : 'have');
+
 const enBe = s => (s.n === '1sg' ? 'am' : s.n3 ? 'is' : 'are');
 const enDo = s => (s.n3 ? 'does' : 'do');
 
@@ -68,6 +110,8 @@ const cap   = s => s.charAt(0).toUpperCase() + s.slice(1);
 const ptThe = w => (w.g === 'f' ? 'a '   : 'o '  ) + w.pt;   // o / a
 const ptTo  = w => (w.g === 'f' ? 'à '   : 'ao ' ) + w.pt;   // a + o/a
 const ptIn  = w => (w.g === 'f' ? 'na '  : 'no ' ) + w.pt;   // em + o/a
+const ptInA = w => (w.g === 'f' ? 'numa ': 'num ') + w.pt;   // em + um/uma
+const ptNear = w => (w.g === 'f' ? 'perto da ' : 'perto do ') + w.pt;
 
 /* Mass nouns take no indefinite article: "compro roupa", not
    "compro uma roupa"; "buy fruit", not "buy a fruit". */
@@ -75,13 +119,19 @@ const ptA = w => (w.ptMass ? w.pt : (w.g === 'f' ? 'uma ' : 'um ') + w.pt);
 const enA = w => (w.enMass || w.enPl ? w.en
                 : (/^[aeiou]/i.test(w.en) ? 'an ' : 'a ') + w.en);   // an older brother
 
+/* Same choice for a phrase that is already assembled — "an old office" */
+const enAn = s => (/^[aeiou]/i.test(s) ? 'an ' : 'a ') + s;
+
 /* A few English glosses are grammatically plural ("clothes",
    "trousers") and drag the verb and the demonstrative with them. */
 const enIs   = w => (w.enPl ? 'are'   : 'is');
 const enThis = w => (w.enPl ? 'these' : 'this');
 
-/* Adjectives agree with the noun they describe */
+/* Adjectives agree with the noun they describe — in number too, once the
+   [NCAS] order starts counting them: "dois gatos fofos", "duas lojas
+   pequenas", "três alunos jovens". */
 const ptAdj = (a, noun) => (noun.g === 'f' ? a.ptf : a.pt);
+const ptPlural = form => (form.endsWith('m') ? form.slice(0, -1) + 'ns' : form + 's');
 
 /* 新/旧 describe objects and 可爱 describes creatures; neither crosses
    over, so 这只狗很旧 never gets generated. */
@@ -165,14 +215,16 @@ const LISTEN_WORDS = {
 
   /* ── Occupations ──────────────────────────────────────────────
      Used after 是 and 当, where Portuguese takes no article ("ele é
-     médico") but agrees with the subject's gender — hence ptf. */
-  '医生':   { r: 'job', g: 'm', pt: 'médico',   ptf: 'médica',   en: 'doctor' },
-  '商人':   { r: 'job', g: 'm', pt: 'vendedor', ptf: 'vendedora', en: 'merchant' },
-  '职员':   { r: 'job', g: 'm', pt: 'trabalhador de escritório', ptf: 'trabalhadora de escritório', en: 'office worker' },
-  '律师':   { r: 'job', g: 'm', pt: 'advogado', ptf: 'advogada', en: 'lawyer' },
-  '司机':   { r: 'job', g: 'm', pt: 'motorista', ptf: 'motorista', en: 'driver' },
-  '工人':   { r: 'job', g: 'm', pt: 'trabalhador', ptf: 'trabalhadora', en: 'worker' },
-  '工程师': { r: 'job', g: 'm', pt: 'engenheiro', ptf: 'engenheira', en: 'engineer' },
+     médico") but agrees with the subject's gender — hence ptf.  The
+     plurals and measure word are for the [NCAS] order, which counts
+     them: 这间医院有三个好的医生. */
+  '医生':   { r: 'job', mw: '个', g: 'm', pt: 'médico',   ptf: 'médica',   ptp: 'médicos',   en: 'doctor',   enp: 'doctors' },
+  '商人':   { r: 'job', mw: '个', g: 'm', pt: 'vendedor', ptf: 'vendedora', ptp: 'vendedores', en: 'merchant', enp: 'merchants' },
+  '职员':   { r: 'job', mw: '个', g: 'm', pt: 'escriturário', ptf: 'escriturária', ptp: 'escriturários', en: 'office worker', enp: 'office workers' },
+  '律师':   { r: 'job', mw: '个', g: 'm', pt: 'advogado', ptf: 'advogada', ptp: 'advogados', en: 'lawyer', enp: 'lawyers' },
+  '司机':   { r: 'job', mw: '个', g: 'm', pt: 'motorista', ptf: 'motorista', ptp: 'motoristas', en: 'driver', enp: 'drivers' },
+  '工人':   { r: 'job', mw: '个', g: 'm', pt: 'trabalhador', ptf: 'trabalhadora', ptp: 'trabalhadores', en: 'worker', enp: 'workers' },
+  '工程师': { r: 'job', mw: '个', g: 'm', pt: 'engenheiro', ptf: 'engenheira', ptp: 'engenheiros', en: 'engineer', enp: 'engineers' },
 
   /* ── Numbers ──────────────────────────────────────────────────
      二 is left out on purpose: it is how you *read* the digit, while
@@ -242,34 +294,63 @@ const LISTEN_WORDS = {
   '公园':     { r: 'place', g: 'm', pt: 'parque',           en: 'park' },
   '球场':     { r: 'place', g: 'f', pt: 'quadra',           en: 'sports court' },
   '市中心':   { r: 'place work', g: 'm', pt: 'centro da cidade', en: 'city centre' },
+  /* No measure word: 一间市政府 is not something anyone says, and without
+     one it can still be the landmark of 市政府附近的一间办公室. */
+  '市政府':   { r: 'place work', g: 'f', pt: 'prefeitura', en: 'city hall' },
 
   /* ── Countries ────────────────────────────────────────────────
-     Only ever used to state a nationality, which is why each carries
-     both Portuguese forms — 她是巴西人 is "ela é brasileira". */
-  '巴西':     { r: 'country', cap: true, nat: ['brasileiro', 'brasileira'],       natEn: 'Brazilian' },
-  '阿根廷':   { r: 'country', cap: true, nat: ['argentino', 'argentina'],         natEn: 'Argentine' },
-  '马来西亚': { r: 'country', cap: true, nat: ['malaio', 'malaia'],               natEn: 'Malaysian' },
-  '波兰':     { r: 'country', cap: true, nat: ['polonês', 'polonesa'],            natEn: 'Polish' },
-  '加拿大':   { r: 'country', cap: true, nat: ['canadense', 'canadense'],         natEn: 'Canadian' },
-  '古巴':     { r: 'country', cap: true, nat: ['cubano', 'cubana'],               natEn: 'Cuban' },
-  '西班牙':   { r: 'country', cap: true, nat: ['espanhol', 'espanhola'],          natEn: 'Spanish' },
-  '土耳其':   { r: 'country', cap: true, nat: ['turco', 'turca'],                 natEn: 'Turkish' },
-  '意大利':   { r: 'country', cap: true, nat: ['italiano', 'italiana'],           natEn: 'Italian' },
-  '新加坡':   { r: 'country', cap: true, nat: ['singapuriano', 'singapuriana'],   natEn: 'Singaporean' },
-  '葡萄牙':   { r: 'country', cap: true, nat: ['português', 'portuguesa'],        natEn: 'Portuguese' },
-  '澳大利亚': { r: 'country', cap: true, nat: ['australiano', 'australiana'],     natEn: 'Australian' },
-  '中国':     { r: 'country', cap: true, nat: ['chinês', 'chinesa'],              natEn: 'Chinese' },
-  '英国':     { r: 'country', cap: true, nat: ['britânico', 'britânica'],         natEn: 'British' },
-  '俄罗斯':   { r: 'country', cap: true, nat: ['russo', 'russa'],                 natEn: 'Russian' },
-  '韩国':     { r: 'country', cap: true, nat: ['coreano', 'coreana'],             natEn: 'Korean' },
-  '泰国':     { r: 'country', cap: true, nat: ['tailandês', 'tailandesa'],        natEn: 'Thai' },
-  '德国':     { r: 'country', cap: true, nat: ['alemão', 'alemã'],                natEn: 'German' },
-  '美国':     { r: 'country', cap: true, nat: ['americano', 'americana'],         natEn: 'American' },
-  '法国':     { r: 'country', cap: true, nat: ['francês', 'francesa'],            natEn: 'French' },
-  '南非':     { r: 'country', cap: true, nat: ['sul-africano', 'sul-africana'],   natEn: 'South African' },
-  '新西兰':   { r: 'country', cap: true, nat: ['neozelandês', 'neozelandesa'],    natEn: 'New Zealander' },
-  '日本':     { r: 'country', cap: true, nat: ['japonês', 'japonesa'],            natEn: 'Japanese' },
-  '台湾':     { r: 'country', cap: true, nat: ['taiwanês', 'taiwanesa'],          natEn: 'Taiwanese' },
+     nat/natEn state a nationality — 她是巴西人 is "ela é brasileira",
+     which is why both Portuguese forms are here.  pt/en name the country
+     itself, for 去过, and ptTo carries the preposition with it: Portuguese
+     picks between ao/à/aos/a per country and no rule predicts it. */
+  '巴西':         { r: 'country', cap: true, nat: ['brasileiro', 'brasileira'], natEn: 'Brazilian',
+                ptTo: 'ao Brasil', pt: 'Brasil', en: 'Brazil' },
+  '阿根廷':        { r: 'country', cap: true, nat: ['argentino', 'argentina'], natEn: 'Argentine',
+                ptTo: 'à Argentina', pt: 'Argentina', en: 'Argentina' },
+  '马来西亚':       { r: 'country', cap: true, nat: ['malaio', 'malaia'], natEn: 'Malaysian',
+                ptTo: 'à Malásia', pt: 'Malásia', en: 'Malaysia' },
+  '波兰':         { r: 'country', cap: true, nat: ['polonês', 'polonesa'], natEn: 'Polish',
+                ptTo: 'à Polônia', pt: 'Polônia', en: 'Poland' },
+  '加拿大':        { r: 'country', cap: true, nat: ['canadense', 'canadense'], natEn: 'Canadian',
+                ptTo: 'ao Canadá', pt: 'Canadá', en: 'Canada' },
+  '古巴':         { r: 'country', cap: true, nat: ['cubano', 'cubana'], natEn: 'Cuban',
+                ptTo: 'a Cuba', pt: 'Cuba', en: 'Cuba' },
+  '西班牙':        { r: 'country', cap: true, nat: ['espanhol', 'espanhola'], natEn: 'Spanish',
+                ptTo: 'à Espanha', pt: 'Espanha', en: 'Spain' },
+  '土耳其':        { r: 'country', cap: true, nat: ['turco', 'turca'], natEn: 'Turkish',
+                ptTo: 'à Turquia', pt: 'Turquia', en: 'Turkey' },
+  '意大利':        { r: 'country', cap: true, nat: ['italiano', 'italiana'], natEn: 'Italian',
+                ptTo: 'à Itália', pt: 'Itália', en: 'Italy' },
+  '新加坡':        { r: 'country', cap: true, nat: ['singapuriano', 'singapuriana'], natEn: 'Singaporean',
+                ptTo: 'a Singapura', pt: 'Singapura', en: 'Singapore' },
+  '葡萄牙':        { r: 'country', cap: true, nat: ['português', 'portuguesa'], natEn: 'Portuguese',
+                ptTo: 'a Portugal', pt: 'Portugal', en: 'Portugal' },
+  '澳大利亚':       { r: 'country', cap: true, nat: ['australiano', 'australiana'], natEn: 'Australian',
+                ptTo: 'à Austrália', pt: 'Austrália', en: 'Australia' },
+  '中国':         { r: 'country', cap: true, nat: ['chinês', 'chinesa'], natEn: 'Chinese',
+                ptTo: 'à China', pt: 'China', en: 'China' },
+  '英国':         { r: 'country', cap: true, nat: ['britânico', 'britânica'], natEn: 'British',
+                ptTo: 'ao Reino Unido', pt: 'Reino Unido', en: 'the United Kingdom' },
+  '俄罗斯':        { r: 'country', cap: true, nat: ['russo', 'russa'], natEn: 'Russian',
+                ptTo: 'à Rússia', pt: 'Rússia', en: 'Russia' },
+  '韩国':         { r: 'country', cap: true, nat: ['coreano', 'coreana'], natEn: 'Korean',
+                ptTo: 'à Coreia', pt: 'Coreia', en: 'Korea' },
+  '泰国':         { r: 'country', cap: true, nat: ['tailandês', 'tailandesa'], natEn: 'Thai',
+                ptTo: 'à Tailândia', pt: 'Tailândia', en: 'Thailand' },
+  '德国':         { r: 'country', cap: true, nat: ['alemão', 'alemã'], natEn: 'German',
+                ptTo: 'à Alemanha', pt: 'Alemanha', en: 'Germany' },
+  '美国':         { r: 'country', cap: true, nat: ['americano', 'americana'], natEn: 'American',
+                ptTo: 'aos Estados Unidos', pt: 'Estados Unidos', en: 'the United States' },
+  '法国':         { r: 'country', cap: true, nat: ['francês', 'francesa'], natEn: 'French',
+                ptTo: 'à França', pt: 'França', en: 'France' },
+  '南非':         { r: 'country', cap: true, nat: ['sul-africano', 'sul-africana'], natEn: 'South African',
+                ptTo: 'à África do Sul', pt: 'África do Sul', en: 'South Africa' },
+  '新西兰':        { r: 'country', cap: true, nat: ['neozelandês', 'neozelandesa'], natEn: 'New Zealander',
+                ptTo: 'à Nova Zelândia', pt: 'Nova Zelândia', en: 'New Zealand' },
+  '日本':         { r: 'country', cap: true, nat: ['japonês', 'japonesa'], natEn: 'Japanese',
+                ptTo: 'ao Japão', pt: 'Japão', en: 'Japan' },
+  '台湾':         { r: 'country', cap: true, nat: ['taiwanês', 'taiwanesa'], natEn: 'Taiwanese',
+                ptTo: 'a Taiwan', pt: 'Taiwan', en: 'Taiwan' },
 
   /* ── Transitive verbs ─────────────────────────────────────────
      obj names the role its object must have — that pairing is what
@@ -311,19 +392,22 @@ const LISTEN_WORDS = {
 
   /* ── Adjectives ───────────────────────────────────────────────
      adjT things · adjP people · adjF food.  Splitting them is what
-     stops 水果很年轻. */
-  '新':   { r: 'adjT', objOnly: true, pt: 'novo',  ptf: 'nova',  en: 'new' },
-  '旧':   { r: 'adjT', objOnly: true, pt: 'velho', ptf: 'velha', en: 'old' },
-  '贵':   { r: 'adjT adjF', pt: 'caro',   ptf: 'cara',   en: 'expensive' },
-  '便宜': { r: 'adjT adjF', pt: 'barato', ptf: 'barata', en: 'cheap' },
-  '大':   { r: 'adjT', pt: 'grande',  ptf: 'grande',  en: 'big' },
-  '小':   { r: 'adjT', pt: 'pequeno', ptf: 'pequena', en: 'small' },
+     stops 水果很年轻.
+     `op` is the adjective's opposite and `neg` marks the unflattering
+     ones.  Both exist for the 但是 patterns: one clause has to contradict
+     the other, so 很大但是很小 and 很好但是很新 both stay unbuilt. */
+  '新':   { r: 'adjT', objOnly: true, op: '旧', pt: 'novo',  ptf: 'nova',  en: 'new' },
+  '旧':   { r: 'adjT', objOnly: true, op: '新', neg: true, pt: 'velho', ptf: 'velha', en: 'old' },
+  '贵':   { r: 'adjT adjF', op: '便宜', neg: true, pt: 'caro',   ptf: 'cara',   en: 'expensive' },
+  '便宜': { r: 'adjT adjF', op: '贵',   pt: 'barato', ptf: 'barata', en: 'cheap' },
+  '大':   { r: 'adjT', op: '小', pt: 'grande',  ptf: 'grande',  en: 'big' },
+  '小':   { r: 'adjT', op: '大', neg: true, pt: 'pequeno', ptf: 'pequena', en: 'small' },
   '好看': { r: 'adjT adjP', pt: 'bonito', ptf: 'bonita', en: 'good-looking' },
-  '好':   { r: 'adjT adjP adjF', pt: 'bom', ptf: 'boa', en: 'good' },
-  '可爱': { r: 'adjP adjT', alive: true, pt: 'fofo', ptf: 'fofa', en: 'cute' },
-  '老':   { r: 'adjP', pt: 'velho',   ptf: 'velha',   en: 'old' },
-  '年轻': { r: 'adjP', pt: 'jovem',   ptf: 'jovem',   en: 'young' },
-  '讨厌': { r: 'adjP', pt: 'chato',   ptf: 'chata',   en: 'annoying' },
+  '好':   { r: 'adjT adjP adjF', op: '讨厌', pt: 'bom', ptf: 'boa', en: 'good' },
+  '可爱': { r: 'adjP adjT', alive: true, op: '讨厌', pt: 'fofo', ptf: 'fofa', en: 'cute' },
+  '老':   { r: 'adjP', op: '年轻', neg: true, pt: 'velho', ptf: 'velha', en: 'old' },
+  '年轻': { r: 'adjP', op: '老',   pt: 'jovem', ptf: 'jovem', en: 'young' },
+  '讨厌': { r: 'adjP', op: '可爱', neg: true, pt: 'chato', ptf: 'chata', en: 'annoying' },
   '好吃': { r: 'adjF', pt: 'gostoso', ptf: 'gostosa', en: 'tasty' },
 
   /* ── Time ─────────────────────────────────────────────────── */
@@ -339,8 +423,130 @@ const LISTEN_WORDS = {
   '是': { r: '' }, '在': { r: '' }, '去': { r: '' }, '这': { r: '' },
   '人': { r: '' }, '几': { r: '' }, '吗': { r: '' }, '叫': { r: '' },
   '什么': { r: '' }, '名字': { r: '' }, '怎么样': { r: '' }, '在哪里': { r: '' },
-  '当': { r: '' },
+  '当': { r: '' }, '那': { r: '' }, '谁': { r: '' }, '附近': { r: '' },
+  '过': { r: '' }, '但是': { r: '' }, '很多': { r: '' }, '非常': { r: '' },
+
+  /* 的 is the one word here that is not a flashcard of its own — it only
+     ever appears inside 我的, 你的.  The [NCAS] order needs it as a word,
+     so it carries its own pinyin and is in scope in every deck. */
+  '的': { r: '', py: 'de' },
 };
+
+
+/* ============================================================
+   Phrase pieces bigger than one word
+   ============================================================
+   The two exam-2 word orders are each longer than a template can
+   spell inline, and both show up in more than one sentence, so they
+   are built here.  Each returns the Chinese as tokens plus the
+   Portuguese and English of that fragment alone, for the template to
+   drop into the sentence it is building.
+   ============================================================ */
+
+/* 我 or 我的妈妈 — either can head any of the patterns below.  Everything
+   the two translations need in order to conjugate travels with it.
+   `singular` drops 我们/你们/他们, for the sentences that end in a job:
+   "nós trabalhamos como engenheiro" would need a plural of every
+   occupation gloss, which is the same reason 是 uses pronS. */
+function pickSubject(p, { singular = false } = {}) {
+  const pron = p.pick(singular ? 'pronS' : 'pron');
+  const ps = p.pick('poss'), pe = p.pick('person');
+
+  const plain = pron && {
+    z: [pron.z], pt: pron.pt, en: pron.en, n: pron.n, n3: pron.n3, f: !!pron.f,
+  };
+  const family = ps && pe && {
+    z: [ps.z, pe.z], pt: ptPoss(ps, pe), en: `${ps.en} ${pe.en}`,
+    n: '3sg', n3: true, f: pe.g === 'f',
+  };
+
+  if (plain && family) return listenRandom() < 0.5 ? plain : family;
+  return plain || family || null;
+}
+
+/* 数 + 量 + 形容词 + 的 + 名词 — the [NCAS] order:
+       两只可爱的猫 → "dois gatos fofos" · "two cute cats"
+   Portuguese puts the adjective *after* the noun and agrees with it in
+   gender and number, which is the whole point of drilling this one.
+   Only nouns that can be counted in all three languages qualify — 衣服
+   is 一件衣服 but "uma roupa" is not Portuguese, so it stays out.
+   `num: false` drops the number, for 那个年轻的老师 after a demonstrative.
+   `dem` marks the phrase as already following one, which is what makes
+   一 disappear: 这只大的猫, never 这一只大的猫. */
+function pickNcas(p, role, adjRole, { num = true, dem = false } = {}) {
+  const o = p.pick(role), a = p.pick(adjRole);
+  let n = num ? p.pick('num') : null;
+  if (!o || !a || (num && !n) || !adjFits(a, o)) return null;
+  if (!o.mw || !o.ptp || !o.enp) return null;
+  const mw = p.word(o.mw), de = p.word('的');
+  if (!mw || !de) return null;
+  if (dem && n && n.v === 1) n = null;
+
+  const one   = !n || n.v === 1;
+  // "um/uma" and "dois/duas" agree with the noun; the rest don't
+  const ptNum = n ? ((o.g === 'f' && n.ptf) ? n.ptf : n.pt) : '';
+  const adj   = one ? ptAdj(a, o) : ptPlural(ptAdj(a, o));
+  const head  = `${one ? o.pt : o.ptp} ${adj}`;        // "gatos fofos"
+  const enHead = `${a.en} ${one ? o.en : o.enp}`;      // "cute cats"
+
+  return {
+    o, a, one, head, enHead,
+    z:  n ? [n.z, mw.z, a.z, '的', o.z] : [mw.z, a.z, '的', o.z],
+    pt: n ? `${ptNum} ${head}`   : head,
+    en: n ? `${n.en} ${enHead}`  : enHead,
+  };
+}
+
+/* The 在-phrase of [S + adv. de lugar + V + O].  Four shapes — the three
+   built ones are what the listening drills actually say:
+
+       在一间商店                   numa loja
+       在一间小的商店               numa loja pequena
+       在市中心的一间商店           numa loja no centro da cidade
+       在市政府附近的一间办公室     num escritório perto da prefeitura
+
+   The bare 在商店 is kept only as the fallback for a scope that cannot
+   spell any of the others; otherwise it would crowd out the shapes worth
+   practising, and 他在银行 already has templates of its own. */
+function pickPlacePhrase(p, role = 'place') {
+  const pl = p.pick(role);
+  if (!pl) return null;
+  const one = p.word('一'), mw = pl.mw ? p.word(pl.mw) : null, de = p.word('的');
+
+  const shapes = [() => ({ z: [pl.z], pt: ptIn(pl), en: `at the ${pl.en}` })];
+
+  if (one && mw) {
+    shapes.push(() => ({
+      z: [one.z, mw.z, pl.z], pt: ptInA(pl), en: `in ${enAn(pl.en)}`,
+    }));
+
+    if (de) {
+      const a = p.pick('adjT');
+      if (a && adjFits(a, pl)) shapes.push(() => ({
+        z:  [one.z, mw.z, a.z, '的', pl.z],
+        pt: `${ptInA(pl)} ${ptAdj(a, pl)}`,
+        en: `in ${enAn(`${a.en} ${pl.en}`)}`,
+      }));
+
+      const centre = p.word('市中心');
+      if (centre && centre.z !== pl.z) shapes.push(() => ({
+        z:  [centre.z, '的', one.z, mw.z, pl.z],
+        pt: `${ptInA(pl)} ${ptIn(centre)}`,
+        en: `in ${enAn(pl.en)} in the ${centre.en}`,
+      }));
+
+      const near = p.word('附近'), landmark = p.pick('place');
+      if (near && landmark && landmark.z !== pl.z) shapes.push(() => ({
+        z:  [landmark.z, '附近', '的', one.z, mw.z, pl.z],
+        pt: `${ptInA(pl)} ${ptNear(landmark)}`,
+        en: `in ${enAn(pl.en)} near the ${landmark.en}`,
+      }));
+    }
+  }
+
+  const rich = shapes.slice(1);
+  return pickRandom(rich.length ? rich : shapes)();
+}
 
 
 /* ============================================================
@@ -444,6 +650,70 @@ const LISTEN_TEMPLATES = [
         zh: [s.z, '没', '有', o.z],
         pt: `${cap(s.pt)} não ${ptVerb('ter', s.n)} ${o.pt}`,
         en: `${cap(s.en)} ${enDo(s)} not have ${enA(o)}`,
+      };
+    } },
+
+  /* ── [NCAS] número + classificador + adjetivo + 的 + substantivo ── */
+
+  /* 我有两只可爱的猫 */
+  { id: 'ncas-have', needs: ['有', '的'], make(p) {
+      const s = pickSubject(p), np = pickNcas(p, 'thing', 'adjT');
+      if (!s || !np) return null;
+      return {
+        zh: [...s.z, '有', ...np.z],
+        pt: `${cap(s.pt)} ${ptVerb('ter', s.n)} ${np.pt}`,
+        en: `${cap(s.en)} ${enVerb('have', s.n3)} ${np.en}`,
+      };
+    } },
+
+  /* 我想买一台新的手机 */
+  { id: 'ncas-buy', needs: ['买', '的'], make(p) {
+      const s = p.pick('pron'), m = p.pick('modal'), np = pickNcas(p, 'buyable', 'adjT');
+      if (!s || !m || !np) return null;
+      return {
+        zh: [s.z, m.z, '买', ...np.z],
+        pt: `${cap(s.pt)} ${ptVerb(m.pt, s.n)} comprar ${np.pt}`,
+        en: `${cap(s.en)} ${m.enMod || m.enFix ? m.en : enVerb(m.en, s.n3)} `
+          + `${m.enMod ? '' : 'to '}buy ${np.en}`,
+      };
+    } },
+
+  /* 医院有三个好的医生 — jobs only: a place has workers, not daughters,
+     and only a place someone could work at */
+  { id: 'ncas-place-has', needs: ['有', '的'], make(p) {
+      const pl = p.pick('work'), np = pickNcas(p, 'job', 'adjP');
+      if (!pl || !np) return null;
+      return {
+        zh: [pl.z, '有', ...np.z],
+        pt: `${cap(ptThe(pl))} tem ${np.pt}`,
+        en: `The ${pl.en} has ${np.en}`,
+      };
+    } },
+
+  /* 那个年轻的老师是谁？ — the same order, counted by a demonstrative */
+  { id: 'ncas-who', needs: ['那', '是', '谁', '的'], make(p) {
+      const np = pickNcas(p, 'job', 'adjP', { num: false, dem: true });
+      if (!np) return null;
+      return {
+        q: true,
+        zh: ['那', ...np.z, '是', '谁'],
+        pt: `Quem é ${np.o.g === 'f' ? 'aquela' : 'aquele'} ${np.head}?`,
+        en: `Who is that ${np.enHead}?`,
+      };
+    } },
+
+  /* 这三只可爱的猫叫什么名字？ — only animals get asked their name */
+  { id: 'ncas-name', needs: ['这', '叫', '什么', '名字', '的'], make(p) {
+      const np = pickNcas(p, 'likeable', 'adjT', { dem: true });
+      if (!np || !np.o.animal) return null;
+      const f = np.o.g === 'f';
+      return {
+        q: true,
+        zh: ['这', ...np.z, '叫', '什么', '名字'],
+        pt: np.one ? `Qual é o nome dest${f ? 'a' : 'e'} ${np.head}?`
+                   : `Quais são os nomes dest${f ? 'as' : 'es'} ${np.pt}?`,
+        en: np.one ? `What is this ${np.enHead}'s name?`
+                   : `What are the names of these ${np.en}?`,
       };
     } },
 
@@ -613,6 +883,172 @@ const LISTEN_TEMPLATES = [
       };
     } },
 
+  /* ── 过: done at least once ──────────────────────────────────
+     Chinese hangs one particle off the verb; Portuguese has to reach for
+     "já" and the pretérito, English for the present perfect. */
+
+  /* 我去过日本 */
+  { id: 'been-to', needs: ['去', '过'], make(p) {
+      const s = p.pick('pron'), c = p.pick('country');
+      if (!s || !c) return null;
+      return {
+        zh: [s.z, '去', '过', c.z],
+        pt: `${cap(s.pt)} já ${ptPast('ir', s.n)} ${c.ptTo}`,
+        en: `${cap(s.en)} ${enHave(s)} been to ${c.en}`,
+      };
+    } },
+
+  /* 我没去过日本 — 过 negates with 没, never 不 */
+  { id: 'not-been-to', needs: ['没', '去', '过'], make(p) {
+      const s = p.pick('pron'), c = p.pick('country');
+      if (!s || !c) return null;
+      return {
+        zh: [s.z, '没', '去', '过', c.z],
+        pt: `${cap(s.pt)} nunca ${ptPast('ir', s.n)} ${c.ptTo}`,
+        en: `${cap(s.en)} ${enHave(s)} never been to ${c.en}`,
+      };
+    } },
+
+  /* 你去过日本吗？ */
+  { id: 'been-to-q', needs: ['去', '过', '吗'], make(p) {
+      const s = p.pick('you'), c = p.pick('country');
+      if (!s || !c) return null;
+      return {
+        q: true,
+        zh: [s.z, '去', '过', c.z, '吗'],
+        pt: `${cap(s.pt)} já ${ptPast('ir', s.n)} ${c.ptTo}?`,
+        en: `${cap(enHave(s))} ${s.en} been to ${c.en}?`,
+      };
+    } },
+
+  /* 我买过手机 */
+  { id: 'done-before', needs: ['过'], make(p) {
+      const s = p.pick('pron'), v = p.pick('va');
+      if (!s || !v) return null;
+      const o = p.pick(v.obj);
+      if (!o) return null;
+      return {
+        zh: [s.z, v.z, '过', o.z],
+        pt: `${cap(s.pt)} já ${ptPast(v.pt, s.n)}${v.prep ? ' ' + v.prep : ''} ${ptObj(v, o)}`,
+        en: `${cap(s.en)} ${enHave(s)} ${enPart(v.en)} ${enObj(v, o)}`,
+      };
+    } },
+
+  /* 我没喝过中国茶 — 没 + V + 过 */
+  { id: 'not-done-before', needs: ['没', '过'], make(p) {
+      const s = p.pick('pron'), v = p.pick('va');
+      if (!s || !v) return null;
+      const o = p.pick(v.obj);
+      if (!o) return null;
+      return {
+        zh: [s.z, '没', v.z, '过', o.z],
+        pt: `${cap(s.pt)} nunca ${ptPast(v.pt, s.n)}${v.prep ? ' ' + v.prep : ''} ${ptObj(v, o)}`,
+        en: `${cap(s.en)} ${enHave(s)} never ${enPart(v.en)} ${enObj(v, o)}`,
+      };
+    } },
+
+  /* ── 很多 · 非常 ─────────────────────────────────────────────
+     很多 counts without a measure word, and 非常 is the step above 很:
+     "muito" for 很, "extremamente" for 非常, so the two are told apart
+     in the translation the way they are told apart in the audio. */
+
+  /* 爷爷有很多书 */
+  { id: 'many-have', needs: ['有', '很多'], make(p) {
+      const s = pickSubject(p), o = p.pick('count');
+      if (!s || !o || !o.ptp || !o.enp) return null;
+      return {
+        zh: [...s.z, '有', '很多', o.z],
+        pt: `${cap(s.pt)} ${ptVerb('ter', s.n)} muit${o.g === 'f' ? 'as' : 'os'} ${o.ptp}`,
+        en: `${cap(s.en)} ${enVerb('have', s.n3)} many ${o.enp}`,
+      };
+    } },
+
+  /* 医院有很多医生 */
+  { id: 'many-place', needs: ['有', '很多'], make(p) {
+      const pl = p.pick('work'), j = p.pick('job');
+      if (!pl || !j || !j.ptp) return null;
+      return {
+        zh: [pl.z, '有', '很多', j.z],
+        pt: `${cap(ptThe(pl))} tem muitos ${j.ptp}`,
+        en: `The ${pl.en} has many ${j.enp}`,
+      };
+    } },
+
+  /* 这台电脑非常贵 */
+  { id: 'very-adj', needs: ['这', '非常'], make(p) {
+      const o = p.pick('thing'), a = p.pick('adjT');
+      if (!o || !a || !adjFits(a, o)) return null;
+      const mw = p.word(o.mw);
+      if (!mw) return null;
+      return {
+        zh: ['这', mw.z, o.z, '非常', a.z],
+        pt: `${o.g === 'f' ? 'Esta' : 'Este'} ${o.pt} é extremamente ${ptAdj(a, o)}`,
+        en: `${cap(enThis(o))} ${o.en} ${enIs(o)} extremely ${a.en}`,
+      };
+    } },
+
+  /* 这间医院有很多非常好的医生 — both, in the order the recording says them */
+  { id: 'many-very-job', needs: ['这', '有', '很多', '非常', '的'], make(p) {
+      const pl = p.pick('work'), j = p.pick('job'), a = p.pick('adjP');
+      if (!pl || !j || !a || !j.ptp || !pl.mw) return null;
+      const mw = p.word(pl.mw);
+      if (!mw) return null;
+      return {
+        zh: ['这', mw.z, pl.z, '有', '很多', '非常', a.z, '的', j.z],
+        pt: `${pl.g === 'f' ? 'Esta' : 'Este'} ${pl.pt} tem muitos ${j.ptp} `
+          + `extremamente ${ptPlural(ptAdj(a, j))}`,
+        en: `${cap(enThis(pl))} ${pl.en} has many extremely ${a.en} ${j.enp}`,
+      };
+    } },
+
+  /* ── 但是: two clauses ───────────────────────────────────────
+     Kept to the short pairings — a second clause doubles the tiles, and
+     the bank has to stay tappable on a phone. */
+
+  /* 这件裤子很好看但是很贵 — 但是 wants a contrast, so one of the two has
+     to be the unflattering one */
+  { id: 'but-adj', needs: ['这', '很', '但是'], make(p) {
+      const o = p.pick('thing'), a = p.pick('adjT'), b = p.pick('adjT');
+      if (!o || !a || !b || a.z === b.z || a.op === b.z) return null;
+      if (!a.neg === !b.neg) return null;
+      if (!adjFits(a, o) || !adjFits(b, o)) return null;
+      const mw = p.word(o.mw);
+      if (!mw) return null;
+      return {
+        zh: ['这', mw.z, o.z, '很', a.z, '但是', '很', b.z],
+        pt: `${o.g === 'f' ? 'Esta' : 'Este'} ${o.pt} é muito ${ptAdj(a, o)}, `
+          + `mas é muito ${ptAdj(b, o)}`,
+        en: `${cap(enThis(o))} ${o.en} ${enIs(o)} very ${a.en}, but very ${b.en}`,
+      };
+    } },
+
+  /* 我去过中国但是没去过日本 */
+  { id: 'but-been-to', needs: ['去', '过', '但是', '没'], make(p) {
+      const s = p.pick('pron'), c1 = p.pick('country'), c2 = p.pick('country');
+      if (!s || !c1 || !c2 || c1.z === c2.z) return null;
+      return {
+        zh: [s.z, '去', '过', c1.z, '但是', '没', '去', '过', c2.z],
+        pt: `${cap(s.pt)} já ${ptPast('ir', s.n)} ${c1.ptTo}, `
+          + `mas nunca ${ptPast('ir', s.n)} ${c2.ptTo}`,
+        en: `${cap(s.en)} ${enHave(s)} been to ${c1.en}, `
+          + `but ${enHave(s)} never been to ${c2.en}`,
+      };
+    } },
+
+  /* 我有电脑但是没有手机 — things, not people: 有弟弟但是没有老师 pairs
+     two nouns that were never a choice between each other */
+  { id: 'but-have', needs: ['有', '没', '但是'], make(p) {
+      const s = p.pick('pron'), o1 = p.pick('thing'), o2 = p.pick('thing');
+      if (!s || !o1 || !o2 || o1.z === o2.z) return null;
+      return {
+        zh: [s.z, '有', o1.z, '但是', '没', '有', o2.z],
+        pt: `${cap(s.pt)} ${ptVerb('ter', s.n)} ${ptA(o1)}, `
+          + `mas não ${ptVerb('ter', s.n)} ${ptA(o2)}`,
+        en: `${cap(s.en)} ${enVerb('have', s.n3)} ${enA(o1)}, `
+          + `but ${enDo(s)} not have ${enA(o2)}`,
+      };
+    } },
+
   /* 他在银行 */
   { id: 'at-place', needs: ['在'], make(p) {
       const s = p.pick('pron'), pl = p.pick('place');
@@ -632,6 +1068,59 @@ const LISTEN_TEMPLATES = [
         zh: [s.z, '在', pl.z, v.z],
         pt: `${cap(s.pt)} ${ptVerb(v.pt, s.n)}${ptTail(v)} ${ptIn(pl)}`,
         en: `${cap(s.en)} ${enVerb(v.en, s.n3)}${enTail(v)} at the ${pl.en}`,
+      };
+    } },
+
+  /* ── [S + adv. de lugar + V + O] ─────────────────────────────
+     Chinese settles the place before the verb; Portuguese and English
+     put it at the end.  That swap is the pattern being drilled. */
+
+  /* 我的妈妈在一间小的商店买她的衣服 */
+  { id: 'place-svo', needs: ['在'], make(p) {
+      const s = pickSubject(p), where = pickPlacePhrase(p, 'work'), v = p.pick('va');
+      if (!s || !where || !v) return null;
+      const o = p.pick(v.obj);
+      if (!o) return null;
+      return {
+        zh: [...s.z, '在', ...where.z, v.z, o.z],
+        pt: `${cap(s.pt)} ${ptVerb(v.pt, s.n)}${v.prep ? ' ' + v.prep : ''} `
+          + `${ptObj(v, o)} ${where.pt}`,
+        en: `${cap(s.en)} ${enVerb(v.en, s.n3)} ${enObj(v, o)} ${where.en}`,
+      };
+    } },
+
+  /* 我的妈妈在市中心的一间商店工作 */
+  { id: 'place-vi', needs: ['在'], make(p) {
+      const s = pickSubject(p), where = pickPlacePhrase(p, 'work'), v = p.pick('vi2');
+      if (!s || !where || !v) return null;
+      return {
+        zh: [...s.z, '在', ...where.z, v.z],
+        pt: `${cap(s.pt)} ${ptVerb(v.pt, s.n)}${ptTail(v)} ${where.pt}`,
+        en: `${cap(s.en)} ${enVerb(v.en, s.n3)}${enTail(v)} ${where.en}`,
+      };
+    } },
+
+  /* 她在一间学校当老师 */
+  { id: 'place-as-job', needs: ['在', '当'], make(p) {
+      const s = pickSubject(p, { singular: true }),
+            where = pickPlacePhrase(p, 'work'), j = p.pick('job');
+      if (!s || !where || !j) return null;
+      return {
+        zh: [...s.z, '在', ...where.z, '当', j.z],
+        pt: `${cap(s.pt)} ${ptVerb('trabalhar', s.n)} como ${s.f ? j.ptf : j.pt} ${where.pt}`,
+        en: `${cap(s.en)} ${enVerb('work', s.n3)} as ${enA(j)} ${where.en}`,
+      };
+    } },
+
+  /* 你的妈妈在哪里工作？ */
+  { id: 'where-work', needs: ['在哪里'], make(p) {
+      const ps = p.pick('poss2'), pe = p.pick('person'), v = p.pick('vi2');
+      if (!ps || !pe || !v) return null;
+      return {
+        q: true,
+        zh: [ps.z, pe.z, '在哪里', v.z],
+        pt: `Onde ${ptPoss(ps, pe)} ${ptVerb(v.pt, '3sg')}${ptTail(v)}?`,
+        en: `Where does ${ps.en} ${pe.en} ${v.en}${enTail(v)}?`,
       };
     } },
 
@@ -788,10 +1277,11 @@ function listenPool(scope) {
 
     for (const [hanzi, spec] of Object.entries(LISTEN_WORDS)) {
       const found = index.get(hanzi);
-      if (!found) continue;                                   // not in vocab.js
-      if (!decks.some(d => found.decks.has(d))) continue;      // out of scope
+      // Not in vocab.js, and no pinyin of its own to fall back on (的)
+      if (!found && !spec.py) continue;
+      if (found && !decks.some(d => found.decks.has(d))) continue;   // out of scope
 
-      const word = { ...spec, z: hanzi, py: found.pinyin };
+      const word = { ...spec, z: hanzi, py: found ? found.pinyin : spec.py };
       words.set(hanzi, word);
       for (const role of spec.r.split(' ').filter(Boolean)) {
         if (!roles.has(role)) roles.set(role, []);
@@ -841,19 +1331,56 @@ function listenSoundOf(tokens, scope) {
 
    Homophones of the phrase's own words are excluded: 他 and 她 are both
    "tā", so offering both turns the drill into a coin toss that no amount
-   of listening can win. */
-function listenDecoys(tokens, pool, count) {
+   of listening can win.
+
+   `budget` is what is left of the tile row's width; decoys that would
+   push it past its slot are passed over.  Two decoys are worth more than
+   a tidy row, so if nothing fits, the shortest words are taken anyway. */
+function listenDecoys(tokens, pool, count, budget) {
   const used   = new Set(tokens);
   const sounds = new Set(tokens.map(t => soundOf(pool.word(t), t)));
   const spare  = pool.all.filter(w =>
     !used.has(w.z) && w.r && !sounds.has(soundOf(w, w.z)));   // skip bare grammar words
   const out = [];
+  let left = budget;
+
   while (out.length < count && spare.length) {
-    const [w] = spare.splice(Math.floor(listenRandom() * spare.length), 1);
+    let fits = spare.filter(w => w.z.length + 1 <= left);
+    if (!fits.length) {
+      if (out.length >= 2) break;
+      const shortest = Math.min(...spare.map(w => w.z.length));
+      fits = spare.filter(w => w.z.length === shortest);
+    }
+    const w = fits[Math.floor(listenRandom() * fits.length)];
+    spare.splice(spare.indexOf(w), 1);
     out.push(w.z);
+    left -= w.z.length + 1;
   }
   return out;
 }
+
+/* Two ceilings, both on the size of the tile row.
+
+   The first is the drill's: the place adverbial can stack up — 你的朋友 ·
+   在 · 百货公司 · 附近 · 的 · 一 · 间 · 餐厅 · 买 · 洗衣机 — and past about
+   nine tiles it stops testing what was heard and starts testing how much
+   of it can be held in mind while hunting through the bank.
+
+   The second is the layout's.  The listening view reserves the tile rows
+   a fixed height, found by sampling what this function produces (see
+   lsWorstCase in app.js), and a sample can only discover a ceiling that
+   phrases actually reach.  So the generator states one, in the width a
+   wrapped row of tiles costs — one per hanzi plus one per tile.  Without
+   it the occasional long phrase overflowed the slot it was given and the
+   tiles below the fold were clipped: invisible, and untappable.
+
+   Re-rolling costs nothing, so anything over either ceiling is simply
+   built again. */
+const LISTEN_MAX_TOKENS = 9;
+const LISTEN_MAX_WIDTH  = 24;   // the phrase itself
+const LISTEN_ROW_WIDTH  = 30;   // the phrase and its decoys together
+
+const rowWidth = words => words.reduce((n, w) => n + w.length + 1, 0);
 
 /* Build one phrase for the given scope.  `avoid` is the previous
    template id, so the same pattern doesn't come up twice in a row.
@@ -871,6 +1398,8 @@ function buildListeningPhrase(scope, avoid = null) {
     if (!built) continue;
 
     const tokens = built.zh;
+    const width  = rowWidth(tokens);
+    if ((tokens.length > LISTEN_MAX_TOKENS || width > LISTEN_MAX_WIDTH) && tries < 70) continue;
     // A focused scope keeps re-rolling until the phrase is about its deck
     if (!pool.onTopic(tokens) && tries < 70) continue;
     return {
@@ -880,7 +1409,8 @@ function buildListeningPhrase(scope, avoid = null) {
       pinyin:  listenPinyin(tokens, pool),
       pt:      built.pt,
       en:      built.en,
-      decoys:  listenDecoys(tokens, pool, Math.min(3, Math.max(2, 8 - tokens.length))),
+      decoys:  listenDecoys(tokens, pool, Math.min(3, Math.max(2, 8 - tokens.length)),
+                            LISTEN_ROW_WIDTH - width),
     };
   }
   return null;

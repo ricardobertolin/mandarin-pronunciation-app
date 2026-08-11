@@ -1603,6 +1603,14 @@ body.tx-open { overflow: hidden; }
 .ls-measuring .ls-stage { height: auto; }
 .ls-measuring .ls-stage > * { height: auto; }
 
+/* ::before is a flex item like the tiles are, so leaving it in the row
+   made lsFit() measure the worst-case tiles *plus* the prompt and reserve
+   a whole extra row of height — but only when the answer happened to be
+   empty at the moment of the measurement.  Since a resize re-measures,
+   and a phone fires one every time the URL bar slides away, the card grew
+   or shrank by a tile row depending on whether a word had been placed. */
+.ls-measuring .ls-answer--empty::before { content: none; }
+
 /* Offline, playback is the one thing that may not work */
 body.is-offline .ls-play { opacity: 0.5; box-shadow: none; }
 
