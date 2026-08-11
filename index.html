@@ -14,7 +14,12 @@
 
   <link rel="stylesheet" href="style.css">
   <link rel="manifest" href="manifest.json">
-  <link rel="apple-touch-icon" href="icon.svg">
+
+  <!-- Tab / bookmark icon. Browsers take the SVG when they can and fall
+       back to the .ico, which is also what a bare /favicon.ico hit gets. -->
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="icon" type="image/x-icon" sizes="16x16 32x32 48x48" href="favicon.ico">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
   <!-- pinyin-pro: converts Chinese characters → pinyin with tone marks.
        Loaded from CDN; gracefully skipped if offline on first load. -->
   <script src="https://cdn.jsdelivr.net/npm/pinyin-pro@3.24.2/dist/index.min.js"
@@ -26,7 +31,7 @@
 
     <!-- ── Header ─────────────────────────────────────────── -->
     <header class="header">
-      <h1 class="header__zh">普通话练习</h1>
+      <h1 class="header__zh" id="appLogo">普通话练习</h1>
       <p class="header__en">Mandarin Pronunciation Practice</p>
     </header>
 
@@ -160,9 +165,14 @@
                  aria-label="Character by character comparison"></div>
           </div>
 
+          <!-- Named tone slips: right syllable, wrong pitch -->
+          <p class="tone-note" id="toneNote" hidden lang="zh-Latn"
+             role="status" aria-live="polite"></p>
+
           <!-- Legend explaining the colour coding -->
           <div class="legend" aria-label="Colour legend">
             <span class="legend__item legend__item--correct">Correct</span>
+            <span class="legend__item legend__item--tone">Tone</span>
             <span class="legend__item legend__item--wrong">Wrong</span>
             <span class="legend__item legend__item--missing">Missing</span>
             <span class="legend__item legend__item--extra">Extra</span>
@@ -350,7 +360,7 @@
     </main><!-- /main -->
 
     <footer class="footer">
-      <p>v3.0.0 &nbsp;·&nbsp; Web Speech API</p>
+      <p>v2.5.0 &nbsp;·&nbsp; Web Speech API</p>
       <p>Made by <span class="footer__author">ricardobertolin</span></p>
     </footer>
 

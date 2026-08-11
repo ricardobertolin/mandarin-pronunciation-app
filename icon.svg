@@ -1,9 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
-  <!-- App icon: red rounded square with the character 普 (pǔ = common/universal) -->
+  <!-- App icon: red rounded square with the character 普 (pǔ = common/universal).
+       Sans-serif on purpose: this doubles as the favicon, and serif strokes
+       turn to mush at 16px. Keep in sync with favicon.ico / icon-*.png. -->
   <rect width="192" height="192" rx="32" fill="#c0392b"/>
   <text
     x="96" y="148"
-    font-family="'Noto Serif SC', 'SimSun', serif"
+    font-family="'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', 'Heiti SC', sans-serif"
     font-size="128"
     font-weight="bold"
     text-anchor="middle"

@@ -1,8 +1,10 @@
 /* ============================================================
-   Mandarin Pronunciation Practice — Application Logic  v2.4.0
+   Mandarin Pronunciation Practice — Application Logic  v2.5.0
    ============================================================
    Features:
      • Speech recognition (zh-CN) with LCS-aligned diff + score
+     • Tone-aware diff: right syllable on the wrong pitch is called
+       out as a tone slip, not lumped in with a wrong character
      • Pinyin auto-convert:  nǐ hǎo / ni3hao3 / nihao → 你好
      • English auto-translate (input): "hello" → 你好
      • Transcription annotations: pinyin line + English line
@@ -38,6 +40,7 @@ const comparisonBlock    = document.getElementById('comparisonBlock');
 const targetDisplay      = document.getElementById('targetDisplay');
 const targetPinyin       = document.getElementById('targetPinyin');
 const diffDisplay        = document.getElementById('diffDisplay');
+const toneNote           = document.getElementById('toneNote');
 const scoreValue              = document.getElementById('scoreValue');
 const tryAgainBtn             = document.getElementById('tryAgainBtn');
 const pronounceTargetBtn      = document.getElementById('pronounceTargetBtn');
@@ -47,6 +50,8 @@ const translateTranscribedBtn = document.getElementById('translateTranscribedBtn
 
 const offlineBar      = document.getElementById('offlineBar');
 const offlineCloseBtn = document.getElementById('offlineCloseBtn');
+
+const appLogo = document.getElementById('appLogo');
 
 /* Translation panel (floats over the record button) */
 const txOverlay    = document.getElementById('txOverlay');
@@ -111,6 +116,93 @@ offlineCloseBtn.addEventListener('click', () => {
 });
 
 applyConnectivity(navigator.onLine);   // the page may have loaded offline
+
+/* ── Easter egg: seven taps on the logo ────────────────────────
+   Undocumented on purpose.  Everything about it is best-effort: the
+   sound lives on someone else's CDN, so offline, a blocked request, a
+   stalled one, or a browser that refuses the format all end the same
+   way — nothing plays, nothing is logged, nothing looks broken.
+
+   The clip is only fetched on the seventh tap: it is 140 kB nobody
+   asked for, and requesting it at load would also hand every visitor's
+   IP to a third party for a joke they may never find.
+   ──────────────────────────────────────────────────────────── */
+const EGG_TAPS       = 7;
+const EGG_WINDOW_MS  = 1200;   // max gap between taps; deliberate, not accidental
+const EGG_TIMEOUT_MS = 5000;   // give up on a request that never arrives
+const EGG_SOUND_URL  =
+  'https://cdn.freesound.org/previews/866/866078_18150200-hq.mp3';
+
+let eggTaps    = 0;
+let eggLastTap = 0;
+let eggAudio   = null;   // kept across plays so the clip is cached, not refetched
+let eggTimer   = null;
+
+function eggPlay() {
+  // A second run-through cancels the first rather than layering on top of it.
+  if (eggAudio) {
+    eggAudio.pause();
+    eggAudio.currentTime = 0;
+  } else {
+    eggAudio = new Audio(EGG_SOUND_URL);
+    eggAudio.preload = 'none';
+    eggAudio.addEventListener('ended', eggStop);
+    eggAudio.addEventListener('error', eggStop);
+  }
+
+  // play() rejects on a failed load or a blocked autoplay, but a request
+  // that merely hangs leaves it pending forever — hence the timeout.
+  clearTimeout(eggTimer);
+  eggTimer = setTimeout(() => { if (eggAudio && eggAudio.paused) eggStop(); },
+                        EGG_TIMEOUT_MS);
+
+  const attempt = eggAudio.play();
+  if (attempt && typeof attempt.catch === 'function') attempt.catch(eggStop);
+
+  appLogo.classList.add('logo--egg');
+}
+
+function eggStop() {
+  clearTimeout(eggTimer);
+  if (eggAudio) {
+    eggAudio.pause();
+    // Nothing loaded means the fetch failed or stalled: drop the element so a
+    // dead CDN can't hold a socket open, and so the next try starts clean.
+    if (eggAudio.readyState === 0) {
+      eggAudio.removeAttribute('src');
+      eggAudio.load();
+      eggAudio = null;
+    }
+  }
+  appLogo.classList.remove('logo--egg');
+}
+
+appLogo.addEventListener('click', () => {
+  // Acknowledge every tap, so a run of them visibly registers. Removing the
+  // class and forcing a reflow restarts the animation mid-flight; without it
+  // the second of two fast taps would go unanswered.
+  //
+  // Skipped while the egg is playing: .logo--egg wins the animation property,
+  // so the class would sit there unplayed — and then fire a stray nudge the
+  // moment the egg ended. The logo is already wobbling; that is the feedback.
+  if (!appLogo.classList.contains('logo--egg')) {
+    appLogo.classList.remove('logo--tap');
+    void appLogo.offsetWidth;
+    appLogo.classList.add('logo--tap');
+  }
+
+  const now = Date.now();
+  eggTaps = (now - eggLastTap < EGG_WINDOW_MS) ? eggTaps + 1 : 1;
+  eggLastTap = now;
+
+  if (eggTaps < EGG_TAPS) return;
+  eggTaps = 0;
+  eggPlay();
+});
+
+appLogo.addEventListener('animationend', e => {
+  if (e.animationName === 'logo-tap') appLogo.classList.remove('logo--tap');
+});
 
 /* ── Speech Recognition ────────────────────────────────────── */
 const SpeechRecognition =
@@ -548,7 +640,7 @@ function handleTranscript(transcript, alternatives = [transcript]) {
   showTranscriptAnnotations(transcript);
 
   if (target) {
-    const { charResults, score } = compareChars(target, transcript);
+    const { charResults, score, toneSlips } = compareChars(target, transcript);
 
     targetDisplay.textContent = target;
     if (typeof pinyinPro !== 'undefined') {
@@ -558,6 +650,7 @@ function handleTranscript(transcript, alternatives = [transcript]) {
       targetPinyin.hidden = true;
     }
     renderDiff(charResults);
+    renderToneNote(toneSlips);
     scoreValue.textContent = score + '%';
     // ≥ 90 % → green; < 90 % → default red
     scoreValue.classList.toggle('score__value--good', score >= 90);
@@ -825,13 +918,55 @@ function charKey(ch) {
   return base;
 }
 
+/* ── Tones ─────────────────────────────────────────────────────
+   Saying the right syllable on the wrong pitch and saying a different
+   syllable entirely are not the same mistake — the first is a near miss
+   worth naming, the second is a different word.  The diff has always had
+   the information to tell them apart (charKey keeps the tone marks); it
+   just reported both as "wrong".
+
+   NFD splits ǒ into o + U+030C, so the combining mark *is* the tone.
+   ──────────────────────────────────────────────────────────── */
+/* Escapes, not literals: a lone combining mark in source is invisible
+   and the next editor to touch this file would eat it. */
+const TONE_MARKS = {
+  '\u0304': 1,   // ō  macron — high level
+  '\u0301': 2,   // ó  acute  — rising
+  '\u030c': 3,   // ǒ  caron  — dipping
+  '\u0300': 4,   // ò  grave  — falling
+};
+const TONE_NAMES = ['neutral', '1st', '2nd', '3rd', '4th'];
+
+/* Tone of a pinyin syllable: 1–4, or 0 for the toneless neutral. */
+function toneOf(key) {
+  for (const ch of key.normalize('NFD')) {
+    if (TONE_MARKS[ch]) return TONE_MARKS[ch];
+  }
+  return 0;
+}
+
+/* Right syllable, wrong tone?  normalizePinyin strips the marks, so equal
+   bases with unequal keys means the vowels landed and only the pitch
+   missed.  Guarded to letters: with the pinyin library offline charKey
+   returns raw hanzi, and two different hanzi are never a tone slip. */
+function isToneSlip(said, expected) {
+  return said !== expected
+      && /[a-z]/.test(said) && /[a-z]/.test(expected)
+      && normalizePinyin(said) === normalizePinyin(expected);
+}
+
 /* ── Character Comparison ──────────────────────────────────────
    Aligns target and transcript with an LCS (longest common
    subsequence) so a single inserted or dropped character no
    longer shifts everything after it out of alignment.
    Punctuation, whitespace and symbols are ignored — the Speech
    API rarely returns them, so they shouldn't cost points.
-   Classifies each slot as: correct | wrong | missing | extra.
+   Classifies each slot as: correct | tone | wrong | missing | extra.
+
+   A tone slip still scores zero for that character: this app grades
+   pronunciation, and in Mandarin the tone is part of the word.  It is
+   called out separately so the student knows *what* to fix, not to
+   soften the mark.
    ──────────────────────────────────────────────────────────── */
 const IGNORED_CHAR = /[\s\p{P}\p{S}]/u;
 
@@ -856,6 +991,7 @@ function compareChars(target, transcript) {
   // Walk the alignment; pair up unmatched runs as substitutions
   // ("wrong") instead of separate missing + extra entries.
   const charResults = [];
+  const toneSlips   = [];   // right syllable, wrong pitch — reported separately
   let matches = 0;
   let i = 0, j = 0;
   let missingRun = [], extraRun = [];
@@ -863,13 +999,28 @@ function compareChars(target, transcript) {
   const flushRuns = () => {
     const pairs = Math.min(missingRun.length, extraRun.length);
     for (let k = 0; k < pairs; k++) {
-      charResults.push({ char: extraRun[k], type: 'wrong', expected: missingRun[k] });
+      const said = extraRun[k], want = missingRun[k];
+      const slip = isToneSlip(said.key, want.key);
+      charResults.push({
+        char: said.char,
+        type: slip ? 'tone' : 'wrong',
+        expected: want.char,
+        saidPinyin: slip ? said.key : undefined,
+        wantPinyin: slip ? want.key : undefined,
+      });
+      if (slip) {
+        toneSlips.push({
+          hanzi: want.char,
+          said:  said.key,   want: want.key,
+          saidTone: toneOf(said.key), wantTone: toneOf(want.key),
+        });
+      }
     }
     for (let k = pairs; k < extraRun.length; k++) {
-      charResults.push({ char: extraRun[k], type: 'extra' });
+      charResults.push({ char: extraRun[k].char, type: 'extra' });
     }
     for (let k = pairs; k < missingRun.length; k++) {
-      charResults.push({ char: missingRun[k], type: 'missing' });
+      charResults.push({ char: missingRun[k].char, type: 'missing' });
     }
     missingRun = [];
     extraRun   = [];
@@ -882,17 +1033,17 @@ function compareChars(target, transcript) {
       charResults.push({ char: sChars[j], type: 'correct' });
       i++; j++;
     } else if (j < n && (i === m || dp[i][j + 1] >= dp[i + 1][j])) {
-      extraRun.push(sChars[j]);
+      extraRun.push({ char: sChars[j], key: sNorm[j] });
       j++;
     } else {
-      missingRun.push(tChars[i]);
+      missingRun.push({ char: tChars[i], key: tNorm[i] });
       i++;
     }
   }
   flushRuns();
 
   const score = m > 0 ? Math.round((matches / m) * 100) : 0;
-  return { charResults, score };
+  return { charResults, score, toneSlips };
 }
 
 /* ── Render Diff ───────────────────────────────────────────── */
@@ -900,11 +1051,16 @@ function renderDiff(charResults) {
   diffDisplay.innerHTML = '';
   const fragment = document.createDocumentFragment();
 
-  charResults.forEach(({ char, type, expected }) => {
+  charResults.forEach(({ char, type, expected, saidPinyin, wantPinyin }) => {
     const span = document.createElement('span');
     span.classList.add('ch', `ch--${type}`);
     span.textContent = char;
-    if (type === 'wrong' && expected) {
+    if (type === 'tone') {
+      const detail = `${wantPinyin} (${TONE_NAMES[toneOf(wantPinyin)]} tone), ` +
+                     `heard ${saidPinyin} (${TONE_NAMES[toneOf(saidPinyin)]})`;
+      span.setAttribute('aria-label', `right sound, wrong tone: expected ${detail}`);
+      span.setAttribute('title', `Right sound, wrong tone — expected ${detail}`);
+    } else if (type === 'wrong' && expected) {
       span.setAttribute('aria-label', `said ${char}, expected ${expected}`);
       span.setAttribute('title', `Expected: ${expected}`);
     }
@@ -912,6 +1068,33 @@ function renderDiff(charResults) {
   });
 
   diffDisplay.appendChild(fragment);
+}
+
+/* ── Tone note ─────────────────────────────────────────────────
+   Spelling out each slip beats a colour alone: "3rd came out as 2nd"
+   is something the student can go and practise, and it names the tone
+   they are actually losing when the same one keeps appearing.
+   ──────────────────────────────────────────────────────────── */
+function renderToneNote(toneSlips) {
+  if (!toneSlips.length) {
+    toneNote.hidden = true;
+    toneNote.textContent = '';
+    return;
+  }
+
+  const detail = toneSlips.map(s =>
+    `${s.hanzi} ${s.want} → ${s.said} ` +
+    `(${TONE_NAMES[s.wantTone]} → ${TONE_NAMES[s.saidTone]})`
+  ).join(' · ');
+
+  // When every slip loses the same tone, that is the lesson, not the list.
+  const tones = new Set(toneSlips.map(s => s.wantTone));
+  const lead = (tones.size === 1 && toneSlips.length > 1)
+    ? `Your ${TONE_NAMES[toneSlips[0].wantTone]} tone is slipping — `
+    : 'Right sounds, wrong tones — ';
+
+  toneNote.textContent = lead + detail;
+  toneNote.hidden = false;
 }
 
 /* ── Helpers ───────────────────────────────────────────────── */
@@ -933,6 +1116,8 @@ function resetUI() {
   pronounceTranscribedBtn.classList.remove('btn-pronounce--speaking');
   targetDisplay.textContent          = '';
   diffDisplay.innerHTML              = '';
+  toneNote.hidden                    = true;
+  toneNote.textContent               = '';
   scoreValue.textContent             = '0%';
   scoreValue.classList.remove('score__value--good');
   showStatus('');
