@@ -47,6 +47,12 @@ const FLASHCARD_DECKS = {
       "en": "they / them"
     },
     {
+      "hanzi": "的",
+      "pinyin": "De",
+      "pt": "partícula possessiva (\"de\")",
+      "en": "possessive particle (\"of\")"
+    },
+    {
       "hanzi": "我的",
       "pinyin": "Wǒ de",
       "pt": "meu / minha",
@@ -359,6 +365,12 @@ const FLASHCARD_DECKS = {
       "en": "friend"
     },
     {
+      "hanzi": "说",
+      "pinyin": "Shuō",
+      "pt": "falar / dizer",
+      "en": "to speak / to say"
+    },
+    {
       "hanzi": "看",
       "pinyin": "Kàn",
       "pt": "ver / assistir",
@@ -375,6 +387,12 @@ const FLASHCARD_DECKS = {
       "pinyin": "Kāichē",
       "pt": "dirigir",
       "en": "to drive"
+    },
+    {
+      "hanzi": "学",
+      "pinyin": "Xué",
+      "pt": "estudar / aprender",
+      "en": "to study / to learn"
     },
     {
       "hanzi": "学生",
@@ -763,12 +781,6 @@ const FLASHCARD_DECKS = {
       "en": "where is it"
     },
     {
-      "hanzi": "说",
-      "pinyin": "Shuō",
-      "pt": "falar / dizer",
-      "en": "to speak / to say"
-    },
-    {
       "hanzi": "语",
       "pinyin": "Yǔ",
       "pt": "língua / idioma",
@@ -785,6 +797,12 @@ const FLASHCARD_DECKS = {
       "pinyin": "Jiā",
       "pt": "casa / família",
       "en": "home / family"
+    },
+    {
+      "hanzi": "父母",
+      "pinyin": "Fùmǔ",
+      "pt": "pais (pai e mãe)",
+      "en": "parents"
     },
     {
       "hanzi": "超市",
@@ -983,6 +1001,12 @@ const FLASHCARD_DECKS = {
       "pinyin": "Lǎo",
       "pt": "velho / idoso",
       "en": "old (aged)"
+    },
+    {
+      "hanzi": "明年",
+      "pinyin": "Míngnián",
+      "pt": "ano que vem / próximo ano",
+      "en": "next year"
     },
     {
       "hanzi": "年轻",

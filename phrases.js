@@ -138,10 +138,14 @@ const ptPlural = form => (form.endsWith('m') ? form.slice(0, -1) + 'ns' : form +
 const adjFits = (a, o) => !(a.objOnly && o.animal) && !(a.alive && !o.animal);
 
 /* 我的爸爸 → "meu pai", but 他的爸爸 → "o pai dele": third person
-   possessives go after the noun in natural Brazilian Portuguese. */
+   possessives go after the noun in natural Brazilian Portuguese.
+   A `plural` noun — 父母 is the only one — drags the possessive into the
+   plural with it: 我的父母 → "meus pais", 他的父母 → "os pais dele". */
 function ptPoss(poss, noun) {
-  if (poss.post) return `${noun.g === 'f' ? 'a' : 'o'} ${noun.pt} ${poss.post}`;
-  return `${noun.g === 'f' ? poss.ptf : poss.pt} ${noun.pt}`;
+  const art = noun.g === 'f' ? 'a' : 'o';
+  if (poss.post) return `${noun.plural ? art + 's' : art} ${noun.pt} ${poss.post}`;
+  const form = noun.g === 'f' ? poss.ptf : poss.pt;
+  return `${noun.plural ? ptPlural(form) : form} ${noun.pt}`;
 }
 
 /* Object of a transitive verb — which article to use is a property of
@@ -208,6 +212,11 @@ const LISTEN_WORDS = {
   '女儿':   { r: 'person count', mw: '个', g: 'f', pt: 'filha',  ptp: 'filhas',  en: 'daughter', enp: 'daughters' },
   '爷爷':   { r: 'person', mw: '个', g: 'm', pt: 'avô', en: 'grandfather' },
   '奶奶':   { r: 'person', mw: '个', g: 'f', pt: 'avó', en: 'grandmother' },
+  /* The one plural person: "pais" / "parents" are plural in Portuguese and
+     English too, so it conjugates 3pl and takes a plural possessive.  No
+     measure word and no `count` — 两个父母 is not a thing you say — and the
+     two templates that cannot agree with a plural turn it down by hand. */
+  '父母':   { r: 'person', g: 'm', plural: true, pt: 'pais', en: 'parents' },
   '同学':   { r: 'person count', mw: '个', g: 'm', pt: 'colega', ptp: 'colegas', en: 'classmate', enp: 'classmates' },
   '老师':   { r: 'person count job', mw: '个', g: 'm', pt: 'professor', ptf: 'professora', ptp: 'professores', en: 'teacher', enp: 'teachers' },
   '朋友':   { r: 'person count', mw: '个', g: 'm', pt: 'amigo',  ptp: 'amigos',  en: 'friend',  enp: 'friends' },
@@ -377,6 +386,9 @@ const LISTEN_WORDS = {
   '工作': { r: 'vi vi2', pt: 'trabalhar',  en: 'work' },
   '玩':   { r: 'vi vi2', pt: 'brincar',    en: 'play' },
   '学习': { r: 'vi vi2 v va', obj: 'language', pt: 'estudar', en: 'study', ptArt: '', enArt: '' },
+  /* 学 only ever takes an object — 他在学校学 is not a sentence, so unlike
+     学习 it stays out of the intransitive roles. */
+  '学':   { r: 'v va', obj: 'language', pt: 'estudar', en: 'study', ptArt: '', enArt: '' },
   '上班': { r: 'vi', pt: 'ir',  ptTail: 'ao trabalho', en: 'go',   enTail: 'to work' },
   '上课': { r: 'vi vi2', pt: 'ter', ptTail: 'aula',    en: 'have', enTail: 'class' },
 
@@ -413,6 +425,11 @@ const LISTEN_WORDS = {
   /* ── Time ─────────────────────────────────────────────────── */
   '今天': { r: 'time', pt: 'hoje',     en: 'today' },
   '明天': { r: 'time', pt: 'amanhã',   en: 'tomorrow' },
+  /* fut: far enough ahead that the English present stops working —
+     "tomorrow I work" passes, "next year I work" does not, so the
+     time templates reach for "will".  Portuguese is happy either way:
+     "no ano que vem eu vou à Itália" is the ordinary way to say it. */
+  '明年': { r: 'time', fut: true, pt: 'no ano que vem', en: 'next year' },
   '晚上': { r: 'time', pt: 'à noite',  en: 'in the evening' },
   '早上': { r: 'time', pt: 'de manhã', en: 'in the morning' },
 
@@ -426,9 +443,9 @@ const LISTEN_WORDS = {
   '当': { r: '' }, '那': { r: '' }, '谁': { r: '' }, '附近': { r: '' },
   '过': { r: '' }, '但是': { r: '' }, '很多': { r: '' }, '非常': { r: '' },
 
-  /* 的 is the one word here that is not a flashcard of its own — it only
-     ever appears inside 我的, 你的.  The [NCAS] order needs it as a word,
-     so it carries its own pinyin and is in scope in every deck. */
+  /* The [NCAS] order needs 的 as a word of its own.  It is an exam 1
+     flashcard, so exam 2 reaches it through exam 1 like any other; the
+     fallback pinyin is what kept it working before it was carded. */
   '的': { r: '', py: 'de' },
 };
 
@@ -450,14 +467,18 @@ const LISTEN_WORDS = {
    occupation gloss, which is the same reason 是 uses pronS. */
 function pickSubject(p, { singular = false } = {}) {
   const pron = p.pick(singular ? 'pronS' : 'pron');
-  const ps = p.pick('poss'), pe = p.pick('person');
+  const ps = p.pick('poss');
+  let pe = p.pick('person');
+  /* 我的父母 is as plural a subject as 我们, so `singular` has to drop it
+     for the same reason: "meus pais trabalham como engenheiro". */
+  if (singular && pe && pe.plural) pe = null;
 
   const plain = pron && {
     z: [pron.z], pt: pron.pt, en: pron.en, n: pron.n, n3: pron.n3, f: !!pron.f,
   };
   const family = ps && pe && {
     z: [ps.z, pe.z], pt: ptPoss(ps, pe), en: `${ps.en} ${pe.en}`,
-    n: '3sg', n3: true, f: pe.g === 'f',
+    n: pe.plural ? '3pl' : '3sg', n3: !pe.plural, f: pe.g === 'f',
   };
 
   if (plain && family) return listenRandom() < 0.5 ? plain : family;
@@ -755,21 +776,22 @@ const LISTEN_TEMPLATES = [
       };
     } },
 
-  /* 我的妈妈很年轻 */
+  /* 我的妈妈很年轻 · 我的父母很年轻 */
   { id: 'poss-person-adj', needs: ['很'], make(p) {
       const ps = p.pick('poss'), o = p.pick('person'), a = p.pick('adjP');
       if (!ps || !o || !a) return null;
       return {
         zh: [ps.z, o.z, '很', a.z],
-        pt: `${cap(ptPoss(ps, o))} é muito ${ptAdj(a, o)}`,
-        en: `${cap(ps.en)} ${o.en} is very ${a.en}`,
+        pt: `${cap(ptPoss(ps, o))} ${o.plural ? 'são' : 'é'} muito `
+          + (o.plural ? ptPlural(ptAdj(a, o)) : ptAdj(a, o)),
+        en: `${cap(ps.en)} ${o.en} ${o.plural ? 'are' : 'is'} very ${a.en}`,
       };
     } },
 
   /* 这个学生很好 */
   { id: 'this-person-adj', needs: ['这', '个', '很'], make(p) {
       const o = p.pick('person'), a = p.pick('adjP');
-      if (!o || !a) return null;
+      if (!o || !a || o.plural) return null;   // 这个父母 is not Chinese
       return {
         zh: ['这', '个', o.z, '很', a.z],
         pt: `${o.g === 'f' ? 'Esta' : 'Este'} ${o.pt} é muito ${ptAdj(a, o)}`,
@@ -843,7 +865,7 @@ const LISTEN_TEMPLATES = [
       return {
         zh: [t.z, s.z, v.z],
         pt: `${cap(t.pt)} ${s.pt} ${ptVerb(v.pt, s.n)}${ptTail(v)}`,
-        en: `${cap(t.en)} ${s.en} ${enVerb(v.en, s.n3)}${enTail(v)}`,
+        en: `${cap(t.en)} ${s.en} ${t.fut ? 'will ' + v.en : enVerb(v.en, s.n3)}${enTail(v)}`,
       };
     } },
 
@@ -856,7 +878,7 @@ const LISTEN_TEMPLATES = [
       return {
         zh: [t.z, s.z, v.z, o.z],
         pt: `${cap(t.pt)} ${s.pt} ${ptVerb(v.pt, s.n)}${v.prep ? ' ' + v.prep : ''} ${ptObj(v, o)}`,
-        en: `${cap(t.en)} ${s.en} ${enVerb(v.en, s.n3)} ${enObj(v, o)}`,
+        en: `${cap(t.en)} ${s.en} ${t.fut ? 'will ' + v.en : enVerb(v.en, s.n3)} ${enObj(v, o)}`,
       };
     } },
 
@@ -880,6 +902,22 @@ const LISTEN_TEMPLATES = [
         pt: `${cap(s.pt)} ${ptVerb(m.pt, s.n)} ir ${ptTo(pl)}`,
         en: `${cap(s.en)} ${m.enMod || m.enFix ? m.en : enVerb(m.en, s.n3)} `
           + `${m.enMod ? '' : 'to '}go to the ${pl.en}`,
+      };
+    } },
+
+  /* 明年我想去意大利 — the country names carry their own Portuguese
+     preposition (ptTo) and their own English article, so both sides just
+     drop them in.  The modal already marks the future; `fut` is only for
+     the tenseless templates. */
+  { id: 'time-modal-go-country', needs: ['去'], make(p) {
+      const t = p.pick('time'), s = p.pick('pron'),
+            m = p.pick('modal'), c = p.pick('country');
+      if (!t || !s || !m || !c) return null;
+      return {
+        zh: [t.z, s.z, m.z, '去', c.z],
+        pt: `${cap(t.pt)} ${s.pt} ${ptVerb(m.pt, s.n)} ir ${c.ptTo}`,
+        en: `${cap(t.en)} ${s.en} ${m.enMod || m.enFix ? m.en : enVerb(m.en, s.n3)} `
+          + `${m.enMod ? '' : 'to '}go to ${c.en}`,
       };
     } },
 
@@ -1112,15 +1150,15 @@ const LISTEN_TEMPLATES = [
       };
     } },
 
-  /* 你的妈妈在哪里工作？ */
+  /* 你的妈妈在哪里工作？ · 你的父母在哪里工作？ */
   { id: 'where-work', needs: ['在哪里'], make(p) {
       const ps = p.pick('poss2'), pe = p.pick('person'), v = p.pick('vi2');
       if (!ps || !pe || !v) return null;
       return {
         q: true,
         zh: [ps.z, pe.z, '在哪里', v.z],
-        pt: `Onde ${ptPoss(ps, pe)} ${ptVerb(v.pt, '3sg')}${ptTail(v)}?`,
-        en: `Where does ${ps.en} ${pe.en} ${v.en}${enTail(v)}?`,
+        pt: `Onde ${ptPoss(ps, pe)} ${ptVerb(v.pt, pe.plural ? '3pl' : '3sg')}${ptTail(v)}?`,
+        en: `Where ${pe.plural ? 'do' : 'does'} ${ps.en} ${pe.en} ${v.en}${enTail(v)}?`,
       };
     } },
 
@@ -1162,10 +1200,14 @@ const LISTEN_TEMPLATES = [
   { id: 'job-poss', needs: ['是'], make(p) {
       const ps = p.pick('poss'), pe = p.pick('person'), j = p.pick('job');
       if (!ps || !pe || !j || pe.z === j.z) return null;   // not 我的老师是老师
+      /* 我的父母是医生 — 父母 is the only plural person and it is masculine,
+         so the masculine plural of the occupation is the only form needed. */
+      if (pe.plural && (!j.ptp || !j.enp)) return null;
       return {
         zh: [ps.z, pe.z, '是', j.z],
-        pt: `${cap(ptPoss(ps, pe))} é ${pe.g === 'f' ? j.ptf : j.pt}`,
-        en: `${cap(ps.en)} ${pe.en} is ${enA(j)}`,
+        pt: `${cap(ptPoss(ps, pe))} ${pe.plural ? 'são ' + j.ptp
+                                                : 'é ' + (pe.g === 'f' ? j.ptf : j.pt)}`,
+        en: `${cap(ps.en)} ${pe.en} ${pe.plural ? 'are ' + j.enp : 'is ' + enA(j)}`,
       };
     } },
 
@@ -1194,7 +1236,7 @@ const LISTEN_TEMPLATES = [
   /* 你的爸爸叫什么名字？ */
   { id: 'name', needs: ['叫', '什么', '名字'], make(p) {
       const ps = p.pick('poss2'), pe = p.pick('person');
-      if (!ps || !pe) return null;
+      if (!ps || !pe || pe.plural) return null;   // 父母 are two people, two names
       return {
         q: true,
         zh: [ps.z, pe.z, '叫', '什么', '名字'],
