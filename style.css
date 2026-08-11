@@ -87,35 +87,22 @@ body {
   touch-action: manipulation;
 }
 
-/* Every tap answers with a hair of movement, so you can tell the tap
-   landed.  Deliberately tiny: it must read as the title being pressed,
-   not as a hint that something is counting. */
-.logo--tap {
-  animation: logo-tap 140ms ease-out;
-}
-
-@keyframes logo-tap {
-  50% { transform: scale(0.97); opacity: 0.82; }
-}
-
 /* Easter egg: applied while the hidden clip is playing, dropped the moment
    it ends — or never applied at all if the sound could not be fetched.
-   Declared after .logo--tap so it wins while both are on the element. */
+   Ordinary taps do nothing; the logo only ever reacts to the sound.
+   A glow and nothing else: no scaling, no tilting, so the header keeps
+   its position and the line below it never shifts. */
 .logo--egg {
   animation: logo-egg 900ms ease-in-out infinite;
 }
 
 @keyframes logo-egg {
-  0%, 100% { transform: scale(1)    rotate(0deg);    text-shadow: none; }
-  25%      { transform: scale(1.06) rotate(-1.5deg); text-shadow: 0 0 18px rgba(192, 57, 43, 0.55); }
-  75%      { transform: scale(1.06) rotate(1.5deg);  text-shadow: 0 0 18px rgba(192, 57, 43, 0.55); }
+  0%, 100% { filter: brightness(1);    text-shadow: none; }
+  50%      { filter: brightness(1.35); text-shadow: 0 0 18px rgba(192, 57, 43, 0.55); }
 }
 
-/* Keep the tap acknowledgement — it is confirmation, not decoration —
-   but drop the movement from it and stop the egg wobbling entirely. */
 @media (prefers-reduced-motion: reduce) {
   .logo--egg { animation: none; }
-  @keyframes logo-tap { 50% { opacity: 0.82; } }
 }
 
 .header__en {

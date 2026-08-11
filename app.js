@@ -126,28 +126,35 @@ applyConnectivity(navigator.onLine);   // the page may have loaded offline
    The clip is only fetched on the seventh tap: it is 140 kB nobody
    asked for, and requesting it at load would also hand every visitor's
    IP to a third party for a joke they may never find.
+
+   Nothing at all happens on an ordinary tap — no flicker, no hint that
+   anything is counting.  The logo only reacts once the sound is actually
+   playing, and then it has to go quiet for a spell before it will run
+   again, so the joke can't be turned into a machine gun.
    ──────────────────────────────────────────────────────────── */
-const EGG_TAPS       = 7;
-const EGG_WINDOW_MS  = 1200;   // max gap between taps; deliberate, not accidental
-const EGG_TIMEOUT_MS = 5000;   // give up on a request that never arrives
-const EGG_SOUND_URL  =
+const EGG_TAPS        = 7;
+const EGG_WINDOW_MS   = 1200;   // max gap between taps; deliberate, not accidental
+const EGG_TIMEOUT_MS  = 5000;   // give up on a request that never arrives
+const EGG_COOLDOWN_MS = 4000;   // quiet spell once it has finished
+const EGG_SOUND_URL   =
   'https://cdn.freesound.org/previews/866/866078_18150200-hq.mp3';
 
 let eggTaps    = 0;
 let eggLastTap = 0;
 let eggAudio   = null;   // kept across plays so the clip is cached, not refetched
 let eggTimer   = null;
+let eggReadyAt = 0;      // no re-trigger until this moment has passed
+
+const eggPlaying = () => !!eggAudio && !eggAudio.paused;
 
 function eggPlay() {
-  // A second run-through cancels the first rather than layering on top of it.
-  if (eggAudio) {
-    eggAudio.pause();
-    eggAudio.currentTime = 0;
-  } else {
+  if (!eggAudio) {
     eggAudio = new Audio(EGG_SOUND_URL);
     eggAudio.preload = 'none';
     eggAudio.addEventListener('ended', eggStop);
     eggAudio.addEventListener('error', eggStop);
+  } else if (eggAudio.readyState > 0) {
+    eggAudio.currentTime = 0;   // replay the cached clip from the top
   }
 
   // play() rejects on a failed load or a blocked autoplay, but a request
@@ -164,6 +171,7 @@ function eggPlay() {
 
 function eggStop() {
   clearTimeout(eggTimer);
+  eggReadyAt = Date.now() + EGG_COOLDOWN_MS;   // counts from the end, not the start
   if (eggAudio) {
     eggAudio.pause();
     // Nothing loaded means the fetch failed or stalled: drop the element so a
@@ -178,30 +186,18 @@ function eggStop() {
 }
 
 appLogo.addEventListener('click', () => {
-  // Acknowledge every tap, so a run of them visibly registers. Removing the
-  // class and forcing a reflow restarts the animation mid-flight; without it
-  // the second of two fast taps would go unanswered.
-  //
-  // Skipped while the egg is playing: .logo--egg wins the animation property,
-  // so the class would sit there unplayed — and then fire a stray nudge the
-  // moment the egg ended. The logo is already wobbling; that is the feedback.
-  if (!appLogo.classList.contains('logo--egg')) {
-    appLogo.classList.remove('logo--tap');
-    void appLogo.offsetWidth;
-    appLogo.classList.add('logo--tap');
-  }
-
   const now = Date.now();
   eggTaps = (now - eggLastTap < EGG_WINDOW_MS) ? eggTaps + 1 : 1;
   eggLastTap = now;
 
   if (eggTaps < EGG_TAPS) return;
   eggTaps = 0;
-  eggPlay();
-});
 
-appLogo.addEventListener('animationend', e => {
-  if (e.animationName === 'logo-tap') appLogo.classList.remove('logo--tap');
+  // Still playing, or inside the cooldown that follows: swallow it. The
+  // counter is spent either way, so leaning on the logo can't queue up a
+  // second run to fire the moment the first finishes.
+  if (eggPlaying() || now < eggReadyAt) return;
+  eggPlay();
 });
 
 /* ── Speech Recognition ────────────────────────────────────── */
