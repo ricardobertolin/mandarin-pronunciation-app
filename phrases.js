@@ -131,11 +131,27 @@ const enThis = w => (w.enPl ? 'these' : 'this');
    [NCAS] order starts counting them: "dois gatos fofos", "duas lojas
    pequenas", "três alunos jovens". */
 const ptAdj = (a, noun) => (noun.g === 'f' ? a.ptf : a.pt);
-const ptPlural = form => (form.endsWith('m') ? form.slice(0, -1) + 'ns' : form + 's');
+
+/* Portuguese splits the copula the way Chinese does not: 很老 is "é
+   velho" but 很累 is "está cansado", because one is what you are and the
+   other is how you are right now.  `estar` on the adjective says which. */
+const ptIs = (a, plural) => a.estar ? (plural ? 'estão' : 'está')
+                                    : (plural ? 'são'   : 'é');
+
+/* The endings that don't just take -s: "jovens", "felizes", "difíceis".
+   The -il rule is the unstressed one (difícil → difíceis); the stressed
+   one (funil → funis) has no adjective here to apply it to. */
+const ptPlural = form =>
+    form.endsWith('m')  ? form.slice(0, -1) + 'ns'
+  : form.endsWith('z')  ? form + 'es'
+  : form.endsWith('il') ? form.slice(0, -2) + 'eis'
+  :                       form + 's';
 
 /* 新/旧 describe objects and 可爱 describes creatures; neither crosses
-   over, so 这只狗很旧 never gets generated. */
-const adjFits = (a, o) => !(a.objOnly && o.animal) && !(a.alive && !o.animal);
+   over, so 这只狗很旧 never gets generated.  Same for 难: it describes
+   what you read or study, so 这台冰箱很难 stays unbuilt. */
+const adjFits = (a, o) =>
+  !(a.objOnly && o.animal) && !(a.alive && !o.animal) && !(a.studyOnly && !o.study);
 
 /* 我的爸爸 → "meu pai", but 他的爸爸 → "o pai dele": third person
    possessives go after the noun in natural Brazilian Portuguese.
@@ -255,8 +271,9 @@ const LISTEN_WORDS = {
   '间': { r: 'mw' },
 
   /* ── Objects ──────────────────────────────────────────────── */
-  '书':     { r: 'thing count buyable usable', mw: '本', g: 'm', pt: 'livro',      ptp: 'livros',      en: 'book',       enp: 'books' },
-  '字典':   { r: 'thing count buyable usable', mw: '本', g: 'm', pt: 'dicionário', ptp: 'dicionários', en: 'dictionary', enp: 'dictionaries' },
+  /* study: something that can be 难 — you read it or you learn it */
+  '书':     { r: 'thing count buyable usable', mw: '本', g: 'm', study: true, pt: 'livro',      ptp: 'livros',      en: 'book',       enp: 'books' },
+  '字典':   { r: 'thing count buyable usable', mw: '本', g: 'm', study: true, pt: 'dicionário', ptp: 'dicionários', en: 'dictionary', enp: 'dictionaries' },
   '笔':     { r: 'thing count buyable usable', mw: '支', g: 'f', pt: 'caneta',     ptp: 'canetas',     en: 'pen',        enp: 'pens' },
   '电脑':   { r: 'thing count buyable usable', mw: '台', g: 'm', pt: 'computador', ptp: 'computadores', en: 'computer',  enp: 'computers' },
   '电视':   { r: 'thing count watchable',      mw: '台', g: 'f', pt: 'televisão',  ptp: 'televisões',  en: 'television', enp: 'televisions' },
@@ -283,7 +300,7 @@ const LISTEN_WORDS = {
   /* Not `food`: water is 好喝, never 好吃 */
   '水':     { r: 'drinkable',         g: 'f', pt: 'água',    en: 'water', ptMass: true, enMass: true },
   '音乐':   { r: 'likeable',          g: 'f', pt: 'música',  en: 'music' },
-  '中文':   { r: 'likeable language', g: 'm', pt: 'chinês',  en: 'Chinese' },
+  '中文':   { r: 'likeable language', g: 'm', study: true, pt: 'chinês',  en: 'Chinese' },
 
   /* ── Places ───────────────────────────────────────────────── */
   '学校':     { r: 'place work', mw: '间', g: 'f', pt: 'escola',      en: 'school' },
@@ -421,6 +438,13 @@ const LISTEN_WORDS = {
   '年轻': { r: 'adjP', op: '老',   pt: 'jovem', ptf: 'jovem', en: 'young' },
   '讨厌': { r: 'adjP', op: '可爱', neg: true, pt: 'chato', ptf: 'chata', en: 'annoying' },
   '好吃': { r: 'adjF', pt: 'gostoso', ptf: 'gostosa', en: 'tasty' },
+  /* studyOnly: 这本书很难 and 这本字典很难, never 这台冰箱很难 */
+  '难':   { r: 'adjT', studyOnly: true, neg: true, pt: 'difícil', ptf: 'difícil', en: 'difficult' },
+  /* People, not objects: a broken appliance is 坏了, and the gloss here is
+     the one 坏 has of a person — "mau", not "ruim". */
+  '坏':   { r: 'adjP', op: '好', neg: true, pt: 'mau', ptf: 'má', en: 'bad' },
+  '累':   { r: 'adjP', neg: true, estar: true, pt: 'cansado', ptf: 'cansada', en: 'tired' },
+  '快乐': { r: 'adjP', pt: 'feliz', ptf: 'feliz', en: 'happy' },
 
   /* ── Time ─────────────────────────────────────────────────── */
   '今天': { r: 'time', pt: 'hoje',     en: 'today' },
@@ -442,6 +466,7 @@ const LISTEN_WORDS = {
   '什么': { r: '' }, '名字': { r: '' }, '怎么样': { r: '' }, '在哪里': { r: '' },
   '当': { r: '' }, '那': { r: '' }, '谁': { r: '' }, '附近': { r: '' },
   '过': { r: '' }, '但是': { r: '' }, '很多': { r: '' }, '非常': { r: '' },
+  '还是': { r: '' },
 
   /* The [NCAS] order needs 的 as a word of its own.  It is an exam 1
      flashcard, so exam 2 reaches it through exam 1 like any other; the
@@ -782,7 +807,7 @@ const LISTEN_TEMPLATES = [
       if (!ps || !o || !a) return null;
       return {
         zh: [ps.z, o.z, '很', a.z],
-        pt: `${cap(ptPoss(ps, o))} ${o.plural ? 'são' : 'é'} muito `
+        pt: `${cap(ptPoss(ps, o))} ${ptIs(a, o.plural)} muito `
           + (o.plural ? ptPlural(ptAdj(a, o)) : ptAdj(a, o)),
         en: `${cap(ps.en)} ${o.en} ${o.plural ? 'are' : 'is'} very ${a.en}`,
       };
@@ -794,7 +819,7 @@ const LISTEN_TEMPLATES = [
       if (!o || !a || o.plural) return null;   // 这个父母 is not Chinese
       return {
         zh: ['这', '个', o.z, '很', a.z],
-        pt: `${o.g === 'f' ? 'Esta' : 'Este'} ${o.pt} é muito ${ptAdj(a, o)}`,
+        pt: `${o.g === 'f' ? 'Esta' : 'Este'} ${o.pt} ${ptIs(a)} muito ${ptAdj(a, o)}`,
         en: `This ${o.en} is very ${a.en}`,
       };
     } },
@@ -1193,6 +1218,37 @@ const LISTEN_TEMPLATES = [
         zh: [s.z, '是', j.z],
         pt: `${cap(s.pt)} ${ptVerb('ser', s.n)} ${s.f ? j.ptf : j.pt}`,
         en: `${cap(s.en)} ${enBe(s)} ${enA(j)}`,
+      };
+    } },
+
+  /* ── 还是: the choice question ───────────────────────────────
+     Only ever a question, and only ever between two things of the same
+     kind — "você é médico ou advogado?", not "você é médico ou gato?".
+     The subject is 你 by name rather than any pronoun: a choice question
+     is something you ask someone, and 我是医生还是律师 asks nobody. */
+
+  /* 你是医生还是律师？ */
+  { id: 'or-job', needs: ['你', '是', '还是'], make(p) {
+      const s = p.word('你'), j1 = p.pick('job'), j2 = p.pick('job');
+      if (!j1 || !j2 || j1.z === j2.z) return null;
+      return {
+        q: true,
+        zh: [s.z, '是', j1.z, '还是', j2.z],
+        pt: `${cap(s.pt)} ${ptVerb('ser', s.n)} ${j1.pt} ou ${j2.pt}?`,
+        en: `${cap(enBe(s))} ${s.en} ${enA(j1)} or ${enA(j2)}?`,
+      };
+    } },
+
+  /* 你喜欢猫还是狗？ */
+  { id: 'or-like', needs: ['你', '喜欢', '还是'], make(p) {
+      const s = p.word('你'), v = p.word('喜欢');
+      const o1 = p.pick('likeable'), o2 = p.pick('likeable');
+      if (!o1 || !o2 || o1.z === o2.z) return null;
+      return {
+        q: true,
+        zh: [s.z, v.z, o1.z, '还是', o2.z],
+        pt: `${cap(s.pt)} ${ptVerb(v.pt, s.n)} de ${ptObj(v, o1)} ou de ${ptObj(v, o2)}?`,
+        en: `Do ${s.en} ${v.en} ${enObj(v, o1)} or ${enObj(v, o2)}?`,
       };
     } },
 

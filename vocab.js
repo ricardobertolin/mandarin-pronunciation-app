@@ -1,7 +1,8 @@
 /* Auto-generated vocabulary decks from revisao_prova1_r.docx & revisao_prova2_r.docx
    Added by hand afterwards, and so lost if this file is regenerated:
    很多 and 非常 in prova2 — neither is on the revision sheet, but the exam 2
-   listening recordings use both throughout (这间医院有很多非常好的医生). */
+   listening recordings use both throughout (这间医院有很多非常好的医生);
+   难 坏 累 快乐 还是, at the end of prova2, likewise not on the sheet. */
 const FLASHCARD_DECKS = {
   "prova1": [
     {
@@ -1235,6 +1236,36 @@ const FLASHCARD_DECKS = {
       "pinyin": "Dāng",
       "pt": "ser, atuar como; trabalhar como",
       "en": "to be, to act as; to work as"
+    },
+    {
+      "hanzi": "难",
+      "pinyin": "Nán",
+      "pt": "difícil",
+      "en": "difficult / hard"
+    },
+    {
+      "hanzi": "坏",
+      "pinyin": "Huài",
+      "pt": "ruim / mau",
+      "en": "bad"
+    },
+    {
+      "hanzi": "累",
+      "pinyin": "Lèi",
+      "pt": "cansado",
+      "en": "tired"
+    },
+    {
+      "hanzi": "快乐",
+      "pinyin": "Kuàilè",
+      "pt": "feliz",
+      "en": "happy"
+    },
+    {
+      "hanzi": "还是",
+      "pinyin": "Háishi",
+      "pt": "ou (em perguntas)",
+      "en": "or (in questions)"
     }
   ]
 };
