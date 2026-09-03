@@ -2477,7 +2477,8 @@ const lsScopeBtns = document.querySelectorAll('.ls-scope__btn');
 const lsCard      = document.getElementById('lsCard');
 const lsStage     = document.getElementById('lsStage');
 const lsScoreEl   = document.getElementById('lsScore');
-const lsSlowBtn   = document.getElementById('lsSlowBtn');
+const lsSpeedRail = document.getElementById('lsSpeed');
+const lsSpeedBtns = lsSpeedRail.querySelectorAll('.ls-speed__btn');
 const lsSkipBtn   = document.getElementById('lsSkipBtn');
 const lsPlayBtn   = document.getElementById('lsPlayBtn');
 const lsPlayLabel = document.getElementById('lsPlayLabel');
@@ -2495,11 +2496,18 @@ const lsEn        = document.getElementById('lsEn');
 const lsStatus    = document.getElementById('lsStatus');
 const lsNextBtn   = document.getElementById('lsNextBtn');
 
-/* The 🐢 toggle, as an Edge TTS percentage.  Normal delivery is already
-   -25%, so this is roughly half of that again — slow enough to separate
-   the syllables of a compound like 洗衣机 rather than merely unhurried. */
-const LS_SLOW_RATE = '-65%';
-const LS_PREF_KEY  = 'mpp.ls.prefs';
+/* The three positions of the speed rail, as Edge TTS percentages and in
+   the order they appear on screen.  "normal" is the app's usual -25%;
+   "slow" is roughly half of that again, slow enough to separate the
+   syllables of a compound like 洗衣机 rather than merely unhurried; and
+   "slower" is for the phrase you still can't pull apart at 🐢. */
+const LS_SPEEDS = [
+  { key: 'slower', rate: '-85%' },
+  { key: 'slow',   rate: '-65%' },
+  { key: 'normal', rate: EDGE_TTS_RATE },
+];
+const LS_DEFAULT_SPEED = 'normal';
+const LS_PREF_KEY      = 'mpp.ls.prefs';
 
 /* Kept together so the fit can reserve room for the longest of them —
    "not scored" says out loud why the counter didn't move, which is the
@@ -2513,7 +2521,7 @@ const LS_VERDICTS = {
 
 let lsInitialized = false;
 let lsScope   = 'prova1';
-let lsSlow    = false;
+let lsSpeed   = LS_DEFAULT_SPEED;
 let lsPhrase  = null;   // the phrase being drilled, from buildListeningPhrase
 let lsTiles   = [];     // { id, w } — the phrase's words plus decoys, shuffled
 let lsPlaced  = [];     // tile ids, in the order the student tapped them
@@ -2532,12 +2540,14 @@ function lsLoadPrefs() {
     const saved = JSON.parse(localStorage.getItem(LS_PREF_KEY)) || {};
     if (lsScopeExists(saved.scope)) lsScope = saved.scope;
     else if (saved.scope === 'both') lsScope = 'prova2';   // retired button
-    lsSlow = !!saved.slow;
+    /* `slow` was the old two-state toggle: its "on" is the rail's middle. */
+    if (LS_SPEEDS.some(s => s.key === saved.speed)) lsSpeed = saved.speed;
+    else if (saved.slow) lsSpeed = 'slow';
   } catch { /* corrupt entry — keep the defaults */ }
 }
 
 function lsSavePrefs() {
-  try { localStorage.setItem(LS_PREF_KEY, JSON.stringify({ scope: lsScope, slow: lsSlow })); }
+  try { localStorage.setItem(LS_PREF_KEY, JSON.stringify({ scope: lsScope, speed: lsSpeed })); }
   catch { /* private browsing — the preference just doesn't persist */ }
 }
 
@@ -2549,9 +2559,20 @@ function lsApplyScope() {
   });
 }
 
-function lsApplySlow() {
-  lsSlowBtn.classList.toggle('fc-shuffle--on', lsSlow);
-  lsSlowBtn.setAttribute('aria-pressed', String(lsSlow));
+function lsSpeedIndex() {
+  const i = LS_SPEEDS.findIndex(s => s.key === lsSpeed);
+  return i === -1 ? LS_SPEEDS.findIndex(s => s.key === LS_DEFAULT_SPEED) : i;
+}
+
+function lsApplySpeed() {
+  /* The thumb is positioned from the index, so the rail can gain a
+     position later without touching anything here. */
+  lsSpeedRail.style.setProperty('--ls-speed-i', String(lsSpeedIndex()));
+  lsSpeedBtns.forEach(btn => {
+    const on = btn.dataset.speed === lsSpeed;
+    btn.classList.toggle('ls-speed__btn--active', on);
+    btn.setAttribute('aria-checked', on ? 'true' : 'false');
+  });
 }
 
 function lsUpdateScore() {
@@ -2564,7 +2585,7 @@ function lsInit() {
   lsInitialized = true;
   lsLoadPrefs();
   lsApplyScope();
-  lsApplySlow();
+  lsApplySpeed();
   lsNewPhrase({ autoplay: false });   // a first tap should be the student's
   lsFit();   // before the first paint, so nothing is seen to resize
 }
@@ -2650,12 +2671,16 @@ function lsNewPhrase({ autoplay = true } = {}) {
   if (autoplay) lsSpeak();
 }
 
-function lsSpeak() {
+/* `restart` is for a speed change: speak() treats a repeat call on the
+   button that is already speaking as a stop, and here the student wants
+   the same phrase again at the new speed, not silence. */
+function lsSpeak({ restart = false } = {}) {
   if (!lsPhrase) return;
+  if (restart) stopCurrentAudio();
   if (!navigator.onLine) {
     showStatus("You're offline — playback may not work.", lsStatus);
   }
-  speak(lsPhrase.text, lsPlayBtn, lsSlow ? LS_SLOW_RATE : EDGE_TTS_RATE);
+  speak(lsPhrase.text, lsPlayBtn, LS_SPEEDS[lsSpeedIndex()].rate);
 }
 
 /* ── Answering ─────────────────────────────────────────────── */
@@ -2842,14 +2867,30 @@ lsScopeBtns.forEach(btn => btn.addEventListener('click', () => {
   lsNewPhrase({ autoplay: false });   // different vocabulary, fresh phrase
 }));
 
-lsSlowBtn.addEventListener('click', () => {
-  lsSlow = !lsSlow;
-  lsApplySlow();
+function lsSetSpeed(key, { focus = false } = {}) {
+  if (key === lsSpeed) return;
+  lsSpeed = key;
+  lsApplySpeed();
   lsSavePrefs();
-  lsSpeak();          // hearing the difference immediately is the point
+  if (focus) lsSpeedRail.querySelector(`[data-speed="${key}"]`)?.focus();
+  lsSpeak({ restart: true });   // hearing the difference immediately is the point
+}
+
+lsSpeedBtns.forEach(btn =>
+  btn.addEventListener('click', () => lsSetSpeed(btn.dataset.speed)));
+
+/* Arrow keys walk the rail, as a radiogroup is expected to. */
+lsSpeedRail.addEventListener('keydown', e => {
+  const step = e.key === 'ArrowLeft' || e.key === 'ArrowUp'   ? -1
+             : e.key === 'ArrowRight' || e.key === 'ArrowDown' ?  1 : 0;
+  if (!step) return;
+  e.preventDefault();
+  const next = LS_SPEEDS[Math.min(LS_SPEEDS.length - 1,
+                                  Math.max(0, lsSpeedIndex() + step))];
+  lsSetSpeed(next.key, { focus: true });
 });
 
-lsPlayBtn.addEventListener('click', lsSpeak);
+lsPlayBtn.addEventListener('click', () => lsSpeak());
 lsCheckBtn.addEventListener('click', lsCheck);
 lsRevealBtn.addEventListener('click', () => { if (!lsDone) lsFinish(null); });
 lsNextBtn.addEventListener('click', () => lsNewPhrase());

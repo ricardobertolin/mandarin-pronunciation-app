@@ -299,8 +299,22 @@
         <div class="fc-controls">
           <span class="fc-counter" id="lsScore">0 correct</span>
           <div class="fc-controls__actions">
-            <button class="fc-shuffle" id="lsSlowBtn" aria-pressed="false"
-                    title="Speak more slowly">🐢 Slow</button>
+            <!-- Three speeds on one rail: the thumb slides to whichever is
+                 chosen, so the row never reflows and the ordering itself
+                 says which way is slower. -->
+            <div class="ls-speed" id="lsSpeed" role="radiogroup"
+                 aria-label="Playback speed">
+              <span class="ls-speed__thumb" aria-hidden="true"></span>
+              <button class="ls-speed__btn" data-speed="slower" role="radio"
+                      aria-checked="false" aria-label="Slowest"
+                      title="Slowest — syllable by syllable">🐌</button>
+              <button class="ls-speed__btn" data-speed="slow" role="radio"
+                      aria-checked="false" aria-label="Slow"
+                      title="Slow">🐢</button>
+              <button class="ls-speed__btn" data-speed="normal" role="radio"
+                      aria-checked="true" aria-label="Normal speed"
+                      title="Normal speed">🐇</button>
+            </div>
             <button class="fc-shuffle" id="lsSkipBtn">↻ Skip</button>
           </div>
         </div>
